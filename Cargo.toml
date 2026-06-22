@@ -6,10 +6,7 @@ edition = "2024"
 [dependencies]
 egui = "0.31"
 eframe = { version = "0.31", features = ["glow"] }
-pdf = "0.10"
-pdf-render = { version = "1.0.0-beta.17" }
 winit = { version = "0.30", features = ["wayland"] }
-image = "0.25"
 parking_lot = "0.12"
 rfd = "0.15"
 tracing = "0.1"

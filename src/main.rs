@@ -4,6 +4,37 @@ use typshow::AppState;
 use typshow::TypshowApp;
 use tracing::{info, error};
 
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+
+    for face in db.faces() {
+        let is_emoji = face.families.iter().any(|(name, _)| {
+            name.to_lowercase().contains("emoji")
+        });
+        if is_emoji {
+            if let fontdb::Source::File(path) = &face.source {
+                if let Ok(data) = std::fs::read(path) {
+                    let font_name = format!("emoji_{}", face.index);
+                    fonts.font_data.insert(
+                        font_name.clone(),
+                        std::sync::Arc::new(egui::FontData::from_owned(data)),
+                    );
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .push(font_name);
+                }
+            }
+        }
+    }
+
+    ctx.set_fonts(fonts);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -40,7 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eframe::run_native(
         "Typshow",
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            setup_fonts(&cc.egui_ctx);
             Ok(Box::new(TypshowApp::new(shared_state)))
         }),
     )?;

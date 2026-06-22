@@ -1,5 +1,5 @@
 use eframe::App;
-use egui::{CentralPanel, Context, TopBottomPanel, Ui, Button, Margin, Key, ViewportId, ViewportBuilder, ViewportClass};
+use egui::{CentralPanel, Context, TopBottomPanel, Ui, Button, Margin, Key, PointerButton, Sense, ViewportId, ViewportBuilder, ViewportClass, ViewportCommand};
 use crate::app::SharedState;
 use crate::theme::apply_gtk4_style;
 use crate::fullscreen::FullscreenApp;
@@ -11,6 +11,7 @@ pub struct TypshowApp {
     fullscreen_app: FullscreenApp,
     show_fullscreen: bool,
     projection_moved_to_secondary: bool,
+    current_filename: Option<String>,
 }
 
 impl TypshowApp {
@@ -19,8 +20,9 @@ impl TypshowApp {
         Self {
             state,
             fullscreen_app,
-            show_fullscreen: true,
+            show_fullscreen: false,
             projection_moved_to_secondary: false,
+            current_filename: None,
         }
     }
 
@@ -32,7 +34,7 @@ impl TypshowApp {
             if ui.button("📂 Abrir...").clicked() {
                 debug!("Hiciste clic en '📂 Abrir...'. Iniciando diálogo de selección de archivo...");
                 if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Presentaciones", &["pdf", "typ"])
+                    .add_filter("Presentaciones", &["typ"])
                     .pick_file()
                 {
                     info!("Archivo seleccionado: {:?}", path);
@@ -110,22 +112,68 @@ impl App for TypshowApp {
         let dark_mode = self.state.lock().dark_mode;
         apply_gtk4_style(ctx, dark_mode);
 
+        let filename = {
+            let state = self.state.lock();
+            state.file_path.as_ref().and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_string())
+            })
+        };
+
+        if self.current_filename != filename {
+            self.current_filename = filename.clone();
+            let title = match &filename {
+                Some(name) => format!("Typshow - Controlador ({})", name),
+                None => "Typshow - Controlador".to_string(),
+            };
+            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Title(title));
+        }
+
         // 1. Capturar entradas de teclado de forma segura SIN BLOQUEOS concurrentes (Seteando banderas booleanas simples)
         let mut next = false;
         let mut prev = false;
+        let mut first = false;
+        let mut last = false;
+        let mut esc = false;
 
         ctx.input(|i| {
-            if i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::PageDown) {
+            if i.key_pressed(Key::Escape) {
+                esc = true;
+            }
+            if i.key_pressed(Key::H) {
+                first = true;
+            }
+            if i.key_pressed(Key::L) {
+                last = true;
+            }
+            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::PageDown) {
                 next = true;
             }
-            if i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::PageUp) {
+            if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::PageUp) {
                 prev = true;
             }
         });
 
         // 2. Procesar comandos de teclado de forma segura una vez liberado el candado del input de egui
-        if next || prev {
+        if esc {
+            info!("Presionado 'Esc' en controlador. Cerrando proyección.");
+            self.show_fullscreen = false;
+            ctx.send_viewport_cmd_to(
+                ViewportId::from_hash_of("fullscreen_viewport"),
+                egui::ViewportCommand::Close
+            );
+        }
+
+        if first || last || next || prev {
             let mut state = self.state.lock();
+            if first {
+                state.first_page();
+            }
+            if last {
+                state.last_page();
+            }
             if next {
                 state.next_page();
             }
@@ -142,7 +190,7 @@ impl App for TypshowApp {
         });
 
         CentralPanel::default().show(ctx, |ui| {
-            let has_doc = self.state.lock().document.is_some();
+            let has_doc = self.state.lock().file_path.is_some();
             if !has_doc {
                 ui.centered_and_justified(|ui| {
                     ui.heading("Haga clic en '📂 Abrir...' para cargar una presentación.");
@@ -157,10 +205,9 @@ impl App for TypshowApp {
             let total_height = ui.available_height();
             let half_height = total_height / 2.0;
 
-            // Extraemos los campos de AppState que necesitamos para evitar problemas de préstamos múltiples (borrow checker)
-            let (file_path, total_pages, current_page_idx) = {
+let (total_pages, current_page_idx) = {
                 let state_guard = self.state.lock();
-                (state_guard.file_path.clone(), state_guard.total_pages, state_guard.current_page)
+                (state_guard.total_pages, state_guard.current_page)
             };
 
             // 1. Panel Superior (Página Actual) - Delimitado exactamente en altura (50%)
@@ -169,18 +216,30 @@ impl App for TypshowApp {
                 |ui| {
                     ui.vertical_centered(|ui| {
                         ui.label("Página Actual:");
-                        
-                        // Obtenemos la textura de la página de forma segura utilizando los campos copiados
+
                         let texture = self.state.lock().renderer.get_page(
                             ctx,
-                            &file_path,
-                            total_pages,
                             current_page_idx,
                         );
 
                         if let Some(texture) = texture {
                             let remaining_size = ui.available_size();
-                            ui.add(egui::Image::new(&texture).fit_to_exact_size(remaining_size));
+                            let response = ui.add(
+                                egui::Image::new(&texture)
+                                    .fit_to_exact_size(remaining_size)
+                                    .sense(Sense::click())
+                            );
+
+                            if response.clicked_by(PointerButton::Primary) {
+                                info!("Presenter - Clic izquierdo en página actual. Página anterior.");
+                                self.state.lock().prev_page();
+                                ui.ctx().request_repaint();
+                            }
+                            if response.secondary_clicked() {
+                                info!("Presenter - Clic derecho en página actual. Página siguiente.");
+                                self.state.lock().next_page();
+                                ui.ctx().request_repaint();
+                            }
                         } else {
                             ui.label("Cargando página...");
                         }
@@ -197,11 +256,8 @@ impl App for TypshowApp {
                         
                         let next_page_idx = current_page_idx + 1;
                         if next_page_idx < total_pages {
-                            // Obtenemos la textura de la vista previa de forma segura utilizando los campos copiados
                             let texture = self.state.lock().renderer.get_page(
                                 ctx,
-                                &file_path,
-                                total_pages,
                                 next_page_idx,
                             );
 
@@ -248,10 +304,13 @@ impl App for TypshowApp {
                 self.projection_moved_to_secondary = true;
                 info!("Typshow - Ventana de proyección abierta. Moviendo de forma nativa en Niri al monitor secundario...");
                 thread::spawn(|| {
-                    // Esperar un instante corto para asegurar que Niri ha mapeado la ventana y le ha dado el foco inicial
                     thread::sleep(std::time::Duration::from_millis(150));
                     let _ = std::process::Command::new("niri")
                         .args(&["msg", "action", "move-column-to-monitor-next"])
+                        .status();
+                    thread::sleep(std::time::Duration::from_millis(50));
+                    let _ = std::process::Command::new("niri")
+                        .args(&["msg", "action", "focus-monitor-previous"])
                         .status();
                 });
             }
