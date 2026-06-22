@@ -70,7 +70,7 @@ impl FullscreenApp {
                 ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 0.0);
                 ui.style_mut().spacing.window_margin = Margin::same(0);
 
-                let has_doc = self.state.lock().document.is_some();
+                let has_doc = self.state.lock().file_path.is_some();
                 if !has_doc {
                     ui.centered_and_justified(|ui| {
                         ui.colored_label(egui::Color32::GRAY, "Proyección de Presentación (Esperando documento...)");
@@ -79,18 +79,10 @@ impl FullscreenApp {
                 }
 
                 let current_page_idx = self.state.lock().current_page;
-                
-                // Extraemos los campos de AppState que necesitamos
-                let (file_path, total_pages) = {
-                    let state_guard = self.state.lock();
-                    (state_guard.file_path.clone(), state_guard.total_pages)
-                };
 
                 // Obtenemos la textura de la página
                 let texture = self.state.lock().renderer.get_page(
                     ctx,
-                    &file_path,
-                    total_pages,
                     current_page_idx,
                 );
 

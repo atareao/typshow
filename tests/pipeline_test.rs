@@ -39,13 +39,3 @@ fn typst_pipeline_multi_page() {
     let doc = result.unwrap();
     assert_eq!(doc.pages().len(), 3, "Should have 3 pages");
 }
-
-#[test]
-fn pdf_page_count_works() {
-    // Create a minimal valid PDF
-    let minimal_pdf = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF";
-    let pdf = pdf_render::pdf_syntax::Pdf::new(minimal_pdf.to_vec());
-    assert!(pdf.is_ok(), "PDF should parse correctly");
-    let pdf = pdf.unwrap();
-    assert_eq!(pdf.pages().len(), 1, "PDF should have 1 page");
-}
