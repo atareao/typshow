@@ -3,12 +3,12 @@ use egui::containers::scroll_area::State as ScrollState;
 use egui::{
     CentralPanel, Context, TopBottomPanel, Ui, Button, Margin, Key, PointerButton,
     Sense, SidePanel, ScrollArea, Vec2, ViewportId, ViewportBuilder, ViewportClass,
-    ViewportCommand,
+    ViewportCommand, TextEdit, RichText,
 };
 use crate::app::SharedState;
 use crate::theme::apply_gtk4_style;
 use crate::fullscreen::FullscreenApp;
-use tracing::{info, debug, error};
+use tracing::{info, debug, error, warn};
 use std::thread;
 
 pub struct TypshowApp {
@@ -17,7 +17,6 @@ pub struct TypshowApp {
     show_fullscreen: bool,
     projection_moved_to_secondary: bool,
     current_filename: Option<String>,
-    notes_scroll_ratio: f32,
     notes_needs_scroll: bool,
 }
 
@@ -30,18 +29,20 @@ impl TypshowApp {
             show_fullscreen: false,
             projection_moved_to_secondary: false,
             current_filename: None,
-            notes_scroll_ratio: 0.0,
             notes_needs_scroll: false,
         }
     }
 
     fn navigate(&mut self, action: impl Fn(&mut crate::app::AppState)) {
         let mut state = self.state.lock();
+
+        if state.notes.editing && state.notes.dirty {
+            let _ = state.notes.save_current();
+        }
+
         action(&mut state);
         let page = state.current_page;
-        let total = state.total_pages;
-        state.notes.update_scroll_target(page, total);
-        self.notes_scroll_ratio = state.notes.scroll_ratio;
+        state.notes.load_page(page);
         self.notes_needs_scroll = true;
     }
 
@@ -60,9 +61,6 @@ impl TypshowApp {
                         match state.load_file(path_str) {
                             Ok(()) => {
                                 info!("Documento '{}' cargado con éxito.", path_str);
-                                let total = state.total_pages;
-                                state.notes.update_scroll_target(0, total);
-                                self.notes_scroll_ratio = 0.0;
                                 self.notes_needs_scroll = true;
                                 ui.ctx().request_repaint();
                             }
@@ -132,6 +130,7 @@ impl TypshowApp {
     }
 
     fn handle_page_click(&mut self, ctx: &Context, response: &egui::Response) {
+        if self.state.lock().notes.editing { return; }
         if response.clicked_by(PointerButton::Primary) {
             self.navigate(|s| s.prev_page());
             ctx.request_repaint();
@@ -186,19 +185,23 @@ impl App for TypshowApp {
             ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Title(title));
         }
 
+        let editing = self.state.lock().notes.editing;
+
         let mut next = false;
         let mut prev = false;
         let mut first = false;
         let mut last = false;
         let mut esc = false;
 
-        ctx.input(|i| {
-            if i.key_pressed(Key::Escape) { esc = true; }
-            if i.key_pressed(Key::H) { first = true; }
-            if i.key_pressed(Key::L) { last = true; }
-            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::PageDown) { next = true; }
-            if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::PageUp) { prev = true; }
-        });
+        if !editing {
+            ctx.input(|i| {
+                if i.key_pressed(Key::Escape) { esc = true; }
+                if i.key_pressed(Key::H) { first = true; }
+                if i.key_pressed(Key::L) { last = true; }
+                if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::PageDown) { next = true; }
+                if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::PageUp) { prev = true; }
+            });
+        }
 
         if esc {
             self.show_fullscreen = false;
@@ -237,33 +240,116 @@ impl App for TypshowApp {
                     return;
                 }
 
-                let notes_has_content = state.lock().notes.content.is_some();
-                if !notes_has_content {
-                    let path_display = state.lock().notes.path.clone()
-                        .unwrap_or_else(|| "desconocido".to_string());
-                    ui.colored_label(egui::Color32::GRAY, format!("No se encontraron notas en:\n{}", path_display));
+                let notes_available = state.lock().notes.has_content();
+                if !notes_available {
+                    ui.colored_label(egui::Color32::GRAY, "No se pudo inicializar la base de datos de notas.");
                     return;
                 }
 
+                // Show/edit heading for current page
+                {
+                    let mut sg = state.lock();
+                    if sg.notes.heading_editing {
+                        ui.horizontal(|ui| {
+                            ui.add_sized(
+                                egui::vec2(150.0, 20.0),
+                                TextEdit::singleline(&mut sg.notes.heading_edit_buffer)
+                                    .hint_text("Título de la nota"),
+                            );
+                            if ui.button("💾").clicked() {
+                                let _ = sg.notes.save_heading();
+                                ui.ctx().request_repaint();
+                            }
+                            if ui.button("❌").clicked() {
+                                sg.notes.cancel_edit_heading();
+                                ui.ctx().request_repaint();
+                            }
+                        });
+                    } else {
+                        let heading = sg.notes.heading.clone();
+                        let page_num = sg.current_page + 1;
+                        drop(sg);
+                        if let Some(h) = &heading {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(format!("Pág. {}:", page_num)).size(14.0).strong());
+                                ui.label(RichText::new(h).size(14.0).strong());
+                                if ui.button("✏️").clicked() {
+                                    state.lock().notes.start_edit_heading();
+                                    ui.ctx().request_repaint();
+                                }
+                            });
+                            ui.separator();
+                            ui.add_space(2.0);
+                        }
+                    }
+                }
+
+                // Editing controls
+                let editing = state.lock().notes.editing;
+                ui.horizontal(|ui| {
+                    if editing {
+                        let mut state_guard = state.lock();
+                        if ui.button("💾 Guardar").clicked() {
+                            let _ = state_guard.notes.save_current();
+                            ui.ctx().request_repaint();
+                        }
+                        if ui.button("❌ Cancelar").clicked() {
+                            state_guard.notes.cancel_edit();
+                            ui.ctx().request_repaint();
+                        }
+                    } else {
+                        if ui.button("✏️ Editar nota").clicked() {
+                            state.lock().notes.start_edit();
+                            ui.ctx().request_repaint();
+                        }
+                        if ui.button("➕ Nota nueva").clicked() {
+                            match state.lock().notes.insert_note() {
+                                Ok(()) => ui.ctx().request_repaint(),
+                                Err(e) => warn!("Error insertando nota: {}", e),
+                            }
+                        }
+                        if ui.button("🗑 Eliminar nota").clicked() {
+                            match state.lock().notes.delete_current() {
+                                Ok(()) => ui.ctx().request_repaint(),
+                                Err(e) => warn!("Error eliminando nota: {}", e),
+                            }
+                        }
+                        if ui.button("🔄 Reimportar").clicked() {
+                            match state.lock().reimport_notes() {
+                                Ok(()) => ui.ctx().request_repaint(),
+                                Err(e) => warn!("Error reimportando notas: {}", e),
+                            }
+                        }
+                    }
+                });
+                ui.add_space(4.0);
+
                 let scroll_id = ui.make_persistent_id(egui::Id::new("notes_scroll"));
 
-                let viewport_height = ui.available_height();
-
-                let output = ScrollArea::vertical()
+                ScrollArea::vertical()
                     .id_salt("notes_scroll")
                     .show(ui, |ui| {
-                        let notes = &state.lock().notes;
-                        notes.draw(ui);
+                        let mut state_guard = state.lock();
+                        if state_guard.notes.editing {
+                            let text = &mut state_guard.notes.edit_buffer;
+                            let response = ui.add_sized(
+                                ui.available_size(),
+                                TextEdit::multiline(text)
+                                    .desired_width(f32::INFINITY)
+                                    .hint_text("Escriba sus notas aquí..."),
+                            );
+                            if response.changed() {
+                                state_guard.notes.dirty = true;
+                            }
+                        } else {
+                            state_guard.notes.draw(ui);
+                        }
                     });
 
                 if self.notes_needs_scroll {
-                    let content_height = output.content_size.y;
-                    let max_scroll = (content_height - viewport_height).max(0.0);
-                    let offset = (self.notes_scroll_ratio * content_height).min(max_scroll);
                     let mut scroll_state = ScrollState::load(ctx, scroll_id).unwrap_or_default();
-                    scroll_state.offset = Vec2::new(0.0, offset);
+                    scroll_state.offset = Vec2::ZERO;
                     scroll_state.store(ctx, scroll_id);
-                    info!("NOTES SCROLL: offset={:.1} ratio={:.3} content_h={:.1} vp_h={:.1}", offset, self.notes_scroll_ratio, content_height, viewport_height);
                     self.notes_needs_scroll = false;
                 }
             });
