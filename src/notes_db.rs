@@ -8,7 +8,9 @@ pub struct NoteRecord {
 }
 
 pub struct TypSegment {
+    #[allow(dead_code)]
     pub start_line: usize,
+    #[allow(dead_code)]
     pub end_line: usize,
     pub heading: Option<String>,
     pub content: String,
