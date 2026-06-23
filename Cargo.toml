@@ -18,3 +18,4 @@ typst-layout = "0.15.0"
 fontdb = "0.23"
 pulldown-cmark = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
+egui-phosphor = "0.9"
