@@ -10,26 +10,39 @@ fn setup_fonts(ctx: &egui::Context) {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
 
+    let mut loaded = 0;
+
     for face in db.faces() {
-        let is_emoji = face.families.iter().any(|(name, _)| {
-            name.to_lowercase().contains("emoji")
-        });
-        if is_emoji {
-            if let fontdb::Source::File(path) = &face.source {
-                if let Ok(data) = std::fs::read(path) {
-                    let font_name = format!("emoji_{}", face.index);
-                    fonts.font_data.insert(
-                        font_name.clone(),
-                        std::sync::Arc::new(egui::FontData::from_owned(data)),
-                    );
-                    fonts
-                        .families
-                        .entry(egui::FontFamily::Proportional)
-                        .or_default()
-                        .push(font_name);
-                }
+        let families: Vec<String> = face.families.iter().map(|(n, _)| n.to_lowercase()).collect();
+        let is_emoji = families.iter().any(|n| n.contains("emoji"));
+        if !is_emoji { continue; }
+
+        // Skip color bitmap emoji fonts (CBDT/CBLC) — ab_glyph can't render them
+        let is_color = families.iter().any(|n| n.contains("color"));
+        if is_color { continue; }
+
+        if let fontdb::Source::File(path) = &face.source {
+            if let Ok(data) = std::fs::read(path) {
+                let font_name = format!("emoji_{}", face.index);
+                fonts.font_data.insert(
+                    font_name.clone(),
+                    std::sync::Arc::new(egui::FontData::from_owned(data)),
+                );
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .push(font_name);
+                loaded += 1;
             }
         }
+    }
+
+    if loaded == 0 {
+        tracing::warn!("No se encontró una fuente emoji monocromática compatible. \
+                        En Arch Linux: paru -S ttf-noto-emoji-monochrome");
+    } else {
+        tracing::info!("Cargadas {} fuente(s) emoji monocromática(s).", loaded);
     }
 
     ctx.set_fonts(fonts);

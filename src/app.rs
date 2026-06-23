@@ -9,6 +9,7 @@ pub struct AppState {
     pub total_pages: usize,
     pub dark_mode: bool,
     pub file_path: Option<String>,
+    pub typ_content: Option<String>,
     pub renderer: Renderer,
     pub notes: Notes,
 }
@@ -20,6 +21,7 @@ impl AppState {
             total_pages: 0,
             dark_mode: false,
             file_path: None,
+            typ_content: None,
             renderer: Renderer::new(),
             notes: Notes::new(),
         }
@@ -32,9 +34,18 @@ impl AppState {
         self.total_pages = self.renderer.page_count();
         self.current_page = 0;
         self.file_path = Some(path.to_string());
-        self.notes = Notes::load(path, &typ_content);
+        self.typ_content = Some(typ_content.clone());
+        self.notes = Notes::with_db(path, &typ_content, self.total_pages);
 
         info!("Typst compilado con éxito. Total páginas: {}", self.total_pages);
+        Ok(())
+    }
+
+    pub fn reimport_notes(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(ref content) = self.typ_content.clone() {
+            self.notes.reimport(content, self.total_pages)?;
+            info!("Notas reimportadas desde .typ");
+        }
         Ok(())
     }
 
