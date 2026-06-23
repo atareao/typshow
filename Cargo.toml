@@ -1,7 +1,9 @@
 [package]
 name = "typshow"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
+description = "A PDF presentation viewer with dual-window (audience + presenter) support"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 egui = "0.31"
