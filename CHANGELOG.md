@@ -1,14 +1,32 @@
 # Changelog
+## [0.1.8] - 2026-06-23
+
+### Bug Fixes
+
+- Add crates.io required metadata and fix dead_code warning
+
+### Other
+
+- V0.2.0
 ## [0.1.6] - 2026-06-23
+
+### Miscellaneous Tasks
+
+- Release v0.1.6
 
 ### Other
 
 - V0.1.6 (#7)
 ## [0.1.5] - 2026-06-23
 
+### Documentation
+
+- Update README with SQLite notes, emoji, controls detail
+
 ### Features
 
 - *(notes)* SQLite-based editable notes with CRUD, insert/delete/reimport, emoji font fix (#4) (#5)
+- *(ui)* Adwaita/GTK4 theme with Phosphor vector icons (#6)
 
 ### Miscellaneous Tasks
 
