@@ -10,14 +10,39 @@ fn setup_fonts(ctx: &egui::Context) {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
 
-    let mut loaded = 0;
+    let mut loaded_emoji = 0;
+    let mut has_cantarell = false;
 
     for face in db.faces() {
         let families: Vec<String> = face.families.iter().map(|(n, _)| n.to_lowercase()).collect();
+
+        let is_cantarell = families.iter().any(|n| n == "cantarell");
+        if is_cantarell {
+            if let fontdb::Source::File(path) = &face.source {
+                if let Ok(data) = std::fs::read(path) {
+                    let font_name = "cantarell".to_string();
+                    fonts.font_data.insert(
+                        font_name.clone(),
+                        std::sync::Arc::new(egui::FontData::from_owned(data)),
+                    );
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .insert(0, font_name);
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Name("GTK".into()))
+                        .or_default()
+                        .insert(0, "cantarell".into());
+                    has_cantarell = true;
+                }
+            }
+        }
+
         let is_emoji = families.iter().any(|n| n.contains("emoji"));
         if !is_emoji { continue; }
 
-        // Skip color bitmap emoji fonts (CBDT/CBLC) — ab_glyph can't render them
         let is_color = families.iter().any(|n| n.contains("color"));
         if is_color { continue; }
 
@@ -33,17 +58,23 @@ fn setup_fonts(ctx: &egui::Context) {
                     .entry(egui::FontFamily::Proportional)
                     .or_default()
                     .push(font_name);
-                loaded += 1;
+                loaded_emoji += 1;
             }
         }
     }
 
-    if loaded == 0 {
+    if !has_cantarell {
+        info!("Cantarell no encontrada, usando fuente sans-serif por defecto.");
+    }
+
+    if loaded_emoji == 0 {
         tracing::warn!("No se encontró una fuente emoji monocromática compatible. \
                         En Arch Linux: paru -S ttf-noto-emoji-monochrome");
-    } else {
-        tracing::info!("Cargadas {} fuente(s) emoji monocromática(s).", loaded);
     }
+
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    info!("Phosphor font registrada. Familias Proportional: {:?}",
+        fonts.families.get(&egui::FontFamily::Proportional));
 
     ctx.set_fonts(fonts);
 }
