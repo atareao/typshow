@@ -1,4 +1,9 @@
 # Changelog
+## [0.1.10] - 2026-07-30
+
+### Miscellaneous Tasks
+
+- Add workflow_dispatch trigger to release.yml
 ## [0.1.9] - 2026-07-30
 
 ### Bug Fixes
@@ -8,6 +13,10 @@
 ### Features
 
 - *(ui)* Add notes panel visibility toggle (#10)
+
+### Miscellaneous Tasks
+
+- Release v0.1.9
 ## [0.1.8] - 2026-06-23
 
 ### Bug Fixes
