@@ -1,9 +1,22 @@
 # Changelog
+## [0.1.9] - 2026-07-30
+
+### Bug Fixes
+
+- Replace expired GH_PAT with GITHUB_TOKEN in release-prepare
+
+### Features
+
+- *(ui)* Add notes panel visibility toggle (#10)
 ## [0.1.8] - 2026-06-23
 
 ### Bug Fixes
 
 - Add crates.io required metadata and fix dead_code warning
+
+### Miscellaneous Tasks
+
+- Release v0.1.8
 
 ### Other
 
