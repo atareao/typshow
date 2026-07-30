@@ -19,6 +19,7 @@ pub struct TypshowApp {
     projection_moved_to_secondary: bool,
     current_filename: Option<String>,
     notes_needs_scroll: bool,
+    notes_visible: bool,
 }
 
 impl TypshowApp {
@@ -31,6 +32,7 @@ impl TypshowApp {
             projection_moved_to_secondary: false,
             current_filename: None,
             notes_needs_scroll: false,
+            notes_visible: true,
         }
     }
 
@@ -94,6 +96,19 @@ impl TypshowApp {
             };
             if ui.button(fs_label).clicked() {
                 self.show_fullscreen = !self.show_fullscreen;
+                ui.ctx().request_repaint();
+            }
+
+            ui.separator();
+
+            let notes_icon = if self.notes_visible { icons::NOTE } else { icons::NOTE_BLANK };
+            let notes_label = if self.notes_visible {
+                format!("{} Notas", notes_icon)
+            } else {
+                format!("{} Notas", notes_icon)
+            };
+            if ui.button(notes_label).clicked() {
+                self.notes_visible = !self.notes_visible;
                 ui.ctx().request_repaint();
             }
 
@@ -229,7 +244,8 @@ impl App for TypshowApp {
 
         let state = self.state.clone();
 
-        SidePanel::right("notes_panel")
+        if self.notes_visible {
+            SidePanel::right("notes_panel")
             .resizable(true)
             .default_width(300.0)
             .min_width(200.0)
@@ -362,6 +378,7 @@ impl App for TypshowApp {
                         }
                     });
             });
+        }
 
         CentralPanel::default().show(ctx, |ui| {
             let has_doc = state.lock().file_path.is_some();
