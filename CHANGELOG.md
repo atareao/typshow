@@ -1,9 +1,15 @@
 # Changelog
+## [0.1.11] - 2026-07-30
+
+### Miscellaneous Tasks
+
+- Auto-trigger release workflow from release-prepare
 ## [0.1.10] - 2026-07-30
 
 ### Miscellaneous Tasks
 
 - Add workflow_dispatch trigger to release.yml
+- Release v0.1.10
 ## [0.1.9] - 2026-07-30
 
 ### Bug Fixes
