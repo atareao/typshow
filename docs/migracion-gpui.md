@@ -39,6 +39,13 @@ pipeline Typst→`RenderImage`.
   `→/espacio/l/j` siguiente, `←/h/k` anterior, `g`/`G` inicio/fin, `t` tema.
 - **Notas:** panel lateral con ver/editar/guardar/cancelar/nueva/eliminar/
   reimportar y edición del título (`Título`).
+- **Editor de notas/título:** mantiene un cursor (offset en bytes). Durante la
+  edición: `←`/`→` mueven el cursor, `Home`/`End` van a inicio/fin, `Backspace`/
+  `Delete` borran, `Enter` inserta salto (o guarda el título), `Esc` cancela y
+  `Ctrl+V` pega el portapapeles en el cursor. Los caracteres se insertan en la
+  posición del cursor y se muestra un marcador `|`. La lógica de cursor y edición
+  son funciones puras en `keys.rs` (`prev_boundary`, `insert_at`, `backspace_at`,
+  `delete_at`, `display_with_caret`), cubiertas por tests.
 
 ## Ventanas y `app_id`
 
@@ -75,7 +82,9 @@ El nombre de la salida se obtiene con `niri msg outputs` (p. ej. `HDMI-A-1`,
 
 ## Pendiente / follow-ups
 
-- Editor de notas con `EntityInputHandler` (soporte de acentos/IME).
+- Editor de notas con `EntityInputHandler` para selección con ratón/teclado,
+  resaltado de selección y *pre-edit* de IME (los acentos ya funcionan: GPUI
+  compone las teclas muertas y entrega `key_char`).
 - `rfd` asíncrono y compilación Typst fuera del hilo de UI.
 - Límite de tamaño de la caché de páginas (`window.drop_image`).
 - Tema Adwaita/GTK4 e iconos (fase 5).

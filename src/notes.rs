@@ -19,9 +19,13 @@ pub struct Notes {
     pub heading: Option<String>,
     pub heading_editing: bool,
     pub heading_edit_buffer: String,
+    /// Cursor (offset en bytes) del editor del título
+    pub heading_cursor: usize,
     pub elements: Vec<MdElement>,
     pub editing: bool,
     pub edit_buffer: String,
+    /// Cursor (offset en bytes) del editor de la nota
+    pub cursor: usize,
     pub dirty: bool,
     pub scroll_ratio: f32,
     pub total_pages: usize,
@@ -36,9 +40,11 @@ impl Notes {
             heading: None,
             heading_editing: false,
             heading_edit_buffer: String::new(),
+            heading_cursor: 0,
             elements: Vec::new(),
             editing: false,
             edit_buffer: String::new(),
+            cursor: 0,
             dirty: false,
             scroll_ratio: 0.0,
             total_pages: 0,
@@ -70,6 +76,7 @@ impl Notes {
         self.editing = false;
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
 
         if let Some(ref db) = self.db {
             match db.load(page) {
@@ -107,6 +114,7 @@ impl Notes {
             };
             self.dirty = false;
             self.editing = false;
+            self.cursor = 0;
             info!("Nota guardada para página {}", self.current_page + 1);
         }
         Ok(())
@@ -116,12 +124,14 @@ impl Notes {
         self.edit_buffer = self.note_content.clone().unwrap_or_default();
         self.editing = true;
         self.dirty = false;
+        self.cursor = self.edit_buffer.len();
     }
 
     pub fn cancel_edit(&mut self) {
         self.edit_buffer.clear();
         self.editing = false;
         self.dirty = false;
+        self.cursor = 0;
     }
 
     pub fn delete_current(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -133,6 +143,7 @@ impl Notes {
             self.edit_buffer.clear();
             self.editing = false;
             self.dirty = false;
+            self.cursor = 0;
         }
         Ok(())
     }
@@ -180,6 +191,7 @@ impl Notes {
     pub fn start_edit_heading(&mut self) {
         self.heading_edit_buffer = self.heading.clone().unwrap_or_default();
         self.heading_editing = true;
+        self.heading_cursor = self.heading_edit_buffer.len();
     }
 
     pub fn save_heading(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -192,12 +204,14 @@ impl Notes {
         self.heading = new_heading;
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
         Ok(())
     }
 
     pub fn cancel_edit_heading(&mut self) {
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
     }
 
     pub fn update_scroll_target(&mut self, current_page: usize, total_pages: usize) {

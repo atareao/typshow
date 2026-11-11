@@ -6,6 +6,7 @@ Migración de la UI de Typshow de `egui`/`eframe` a **GPUI** (issue #12), por fa
 - **Fase 3** (presenter: abrir fichero, proyección, notas, navegación, clic, Esc): COMPLETADA y auditada.
 - **3.8** edición del título de la nota: COMPLETADA.
 - **4.4** audiencia en monitor secundario: COMPLETADA (con limitación documentada).
+- **3.9** editor de notas con cursor (flechas/Home/End/Backspace/Delete + pegar Ctrl+V): COMPLETADA (tests).
 - PRs: **#13** (spike, mergeado), **#14** (migración, borrador) → `development`.
 
 ## Rama actual
@@ -13,13 +14,18 @@ Migración de la UI de Typshow de `egui`/`eframe` a **GPUI** (issue #12), por fa
 
 ## Hecho
 - `src/gpui_ui/`: `deck.rs` (estado + render + notas + fichero + proyección),
-  `keys.rs` (teclado por `on_key_down`; navegación + edición de nota/título),
+  `keys.rs` (teclado por `on_key_down`; navegación + edición con cursor),
+  `notes.rs` (campos `cursor`/`heading_cursor`),
   `presenter.rs`, `audience.rs`, `theme.rs`, `mod.rs`.
 - Panel de notas con edición del **título** (`start_edit_heading`/`save_heading`).
 - `app_id` por ventana: `com.atareao.typshow.presenter` y
   `com.atareao.typshow.audience`, para reglas de compositor.
 - Doc: `docs/migracion-gpui.md` (incluye la regla de Niri `open-on-output`).
-- Verificado: `cargo build`/`test` (73 lib + 1 spike + 2 pipeline), clippy limpio en `gpui_ui`.
+- Editor de notas/título con **cursor** (offset en bytes): inserción en el cursor,
+  `←`/`→`/`Home`/`End`, `Backspace`/`Delete`, `Enter`, `Esc` y pegar `Ctrl+V`.
+  Operaciones puras en `keys.rs` (`prev_boundary`, `insert_at`, `backspace_at`,
+  `delete_at`, `display_with_caret`) con tests.
+- Verificado: `cargo build`/`test` (89 lib + 1 spike + 2 pipeline), clippy limpio.
 
 ## Limitación conocida (4.4)
 GPUI solo respeta `display_id` en X11; en Wayland/Niri la ventana de audiencia se
@@ -41,10 +47,17 @@ pre-edit visual de la tecla muerta.
   que hacerla a mano.
 
 ## Siguiente
-1. **M4** editor de notas con `EntityInputHandler` (acentos/IME) — importante para español.
+1. **M4 (resto)** editor con `EntityInputHandler`: selección (Shift+flechas/ratón),
+   resaltado y *pre-edit* de IME. (Los acentos ya funcionan sin él.)
 2. **M3** `rfd` asíncrono + compilación Typst fuera del hilo de UI.
 3. **2.2** desacoplar `Notes` de egui (`Notes::draw` usa egui).
 4. Fase 5 (tema Adwaita + iconos), Fase 6 (GPUI por defecto, retirar egui), Fase 7 (cierre).
+
+## Pendiente de verificación manual
+El editor con cursor no se pudo probar E2E automatizado (el `mousemove` de
+`ydotool` dispara el overview de niri y el clic no llega). Conviene abrir la app,
+pulsar **Notas → Editar** y comprobar: flechas mueven el cursor, `|` visible,
+`Ctrl+V` pega, acentos OK.
 
 ## Comandos útiles
 - Run: `cargo build --bin typshow-gpui && ./target/debug/typshow-gpui <file.typ>`

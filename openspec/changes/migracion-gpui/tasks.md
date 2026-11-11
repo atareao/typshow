@@ -22,6 +22,7 @@
 - [x] 3.6 Implementar el panel de notas (ver/editar/guardar/cancelar/nueva/eliminar/reimportar); verificar persistencia
 - [x] 3.8 Editar el título (heading) de la nota desde el panel
 - [x] 3.7 Implementar atajos de teclado y navegación por clic; verificar
+- [x] 3.9 Editor de notas con cursor: inserción en la posición del cursor, flechas/Home/End, Backspace/Delete y pegar (Ctrl+V); verificar con tests
 
 ## 4. Ventana de audiencia
 

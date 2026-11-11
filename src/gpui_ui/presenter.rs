@@ -7,7 +7,7 @@ use gpui::{
 
 use super::audience::AudienceView;
 use super::deck::Deck;
-use super::keys::{apply_edit, apply_heading_edit, apply_nav};
+use super::keys::{apply_edit, apply_heading_edit, apply_nav, display_with_caret};
 use super::theme::{Palette, palette};
 
 /// Ejecuta `action` sobre el `Deck` compartido y notifica a los observers.
@@ -227,9 +227,9 @@ impl PresenterView {
                         .overflow_y_scroll()
                         .text_color(p.fg)
                         .child(if edit_buffer.is_empty() {
-                            "Escribe la nota…".to_string()
+                            "|Escribe la nota…".to_string()
                         } else {
-                            edit_buffer
+                            display_with_caret(&edit_buffer, notes.cursor)
                         }),
                 )
                 .child(
@@ -427,9 +427,9 @@ impl PresenterView {
                                 .rounded_md()
                                 .text_color(p.fg)
                                 .child(if heading_edit_buffer.is_empty() {
-                                    "Título…".to_string()
+                                    "|Título…".to_string()
                                 } else {
-                                    heading_edit_buffer.clone()
+                                    display_with_caret(&heading_edit_buffer, notes.heading_cursor)
                                 }),
                         )
                         .child(
