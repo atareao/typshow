@@ -26,6 +26,20 @@ GPUI solo respeta `display_id` en X11; en Wayland/Niri la ventana de audiencia s
 abre en la salida activa. Solución: regla de Niri sobre `app_id` (ver
 `docs/migracion-gpui.md`).
 
+## Hallazgo (acentos / IME) — verificado
+El backend **Wayland** de GPUI inicializa `xkb::compose::State`
+(`gpui_linux/.../wayland/client.rs:2092`) y compone las teclas muertas: al
+teclear `´`+vocal entrega un `KeyDown` normal con `key="aacute"`,
+`key_char=Some("á")`. Como `keys.rs` inserta `key_char`, **los acentos ya
+funcionan** en los editores de nota y título. El `EntityInputHandler` (M4) NO es
+imprescindible para acentos; solo aporta cursor/selección/ratón/pegar y el
+pre-edit visual de la tecla muerta.
+- Cobertura: tests puros `note_edit_action` / `heading_edit_action` con
+  `aacute`/`ntilde`/`oacute` (10 tests nuevos; total lib 83).
+- Nota: el clic automatizado con `ydotool` dispara el overview de niri
+  (el `mousemove` se interpreta como gesto); la verificación E2E de tecleo hay
+  que hacerla a mano.
+
 ## Siguiente
 1. **M4** editor de notas con `EntityInputHandler` (acentos/IME) — importante para español.
 2. **M3** `rfd` asíncrono + compilación Typst fuera del hilo de UI.

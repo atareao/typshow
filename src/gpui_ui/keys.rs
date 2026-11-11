@@ -10,6 +10,48 @@ use gpui::{AppContext, Entity, KeyDownEvent};
 
 use super::deck::Deck;
 
+/// Enum de acciones de edición puras, independientes del contexto GPUI.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EditAction {
+    /// Cancelar edición (Esc)
+    Cancel,
+    /// Borrar carácter (Backspace)
+    Backspace,
+    /// Añadir salto de línea (Enter en notas)
+    Newline,
+    /// Guardar título (Enter en heading)
+    SaveHeading,
+    /// Insertar carácter (tecla con key_char)
+    Insert(String),
+    /// Tecla no consumible (sin key_char)
+    Ignore,
+}
+
+/// Acción de aplicación de teclado puras, sin dependencias de GPUI.
+pub fn note_edit_action(key: &str, key_char: Option<&str>) -> EditAction {
+    match key {
+        "escape" => EditAction::Cancel,
+        "backspace" => EditAction::Backspace,
+        "enter" => EditAction::Newline,
+        _ => {
+            let Some(ch) = key_char else {
+                return EditAction::Ignore;
+            };
+            EditAction::Insert(ch.to_string())
+        }
+    }
+}
+
+pub fn heading_edit_action(key: &str, key_char: Option<&str>) -> EditAction {
+    match (key, key_char) {
+        ("escape", _) => EditAction::Cancel,
+        ("backspace", _) => EditAction::Backspace,
+        ("enter", _) => EditAction::SaveHeading,
+        (_, None) => EditAction::Ignore,
+        (_key, Some(ch)) => EditAction::Insert(ch.to_string()),
+    }
+}
+
 /// Acción de navegación asociada a una tecla (y si Shift está pulsado), si la hay.
 pub fn nav_action_for(key: &str, shift: bool) -> Option<fn(&mut Deck)> {
     match key {
@@ -47,42 +89,38 @@ pub fn apply_nav<C: AppContext>(deck: &Entity<Deck>, event: &KeyDownEvent, cx: &
 
 /// Aplica una pulsación al editor de notas. Devuelve `true` si se gestionó.
 pub fn apply_edit<C: AppContext>(deck: &Entity<Deck>, event: &KeyDownEvent, cx: &mut C) -> bool {
-    match event.keystroke.key.as_str() {
-        "escape" => {
+    let action = note_edit_action(&event.keystroke.key, event.keystroke.key_char.as_deref());
+    match action {
+        EditAction::Cancel => {
             deck.update(cx, |deck, cx| {
                 deck.notes.cancel_edit();
                 cx.notify();
             });
-            true
         }
-        "backspace" => {
+        EditAction::Backspace => {
             deck.update(cx, |deck, cx| {
                 deck.notes.edit_buffer.pop();
                 deck.notes.dirty = true;
                 cx.notify();
             });
-            true
         }
-        "enter" => {
+        EditAction::Newline => {
             deck.update(cx, |deck, cx| {
                 deck.notes.edit_buffer.push('\n');
                 deck.notes.dirty = true;
                 cx.notify();
             });
-            true
         }
-        _ => {
-            let Some(ch) = event.keystroke.key_char.clone() else {
-                return false;
-            };
+        EditAction::Insert(ch) => {
             deck.update(cx, |deck, cx| {
                 deck.notes.edit_buffer.push_str(&ch);
                 deck.notes.dirty = true;
                 cx.notify();
             });
-            true
         }
+        EditAction::SaveHeading | EditAction::Ignore => {}
     }
+    true
 }
 
 /// Aplica una pulsación al editor del título (heading) de la nota.
@@ -92,41 +130,38 @@ pub fn apply_heading_edit<C: AppContext>(
     event: &KeyDownEvent,
     cx: &mut C,
 ) -> bool {
-    match event.keystroke.key.as_str() {
-        "escape" => {
+    let action = heading_edit_action(&event.keystroke.key, event.keystroke.key_char.as_deref());
+    match action {
+        EditAction::Cancel => {
             deck.update(cx, |deck, cx| {
                 deck.notes.cancel_edit_heading();
                 cx.notify();
             });
-            true
         }
-        "backspace" => {
+        EditAction::Backspace => {
             deck.update(cx, |deck, cx| {
                 deck.notes.heading_edit_buffer.pop();
                 cx.notify();
             });
-            true
         }
-        "enter" => {
+        EditAction::SaveHeading => {
             deck.update(cx, |deck, cx| {
                 if let Err(e) = deck.notes.save_heading() {
                     deck.error = Some(e.to_string());
                 }
                 cx.notify();
             });
-            true
         }
-        _ => {
-            let Some(ch) = event.keystroke.key_char.clone() else {
-                return false;
-            };
+        EditAction::Insert(ch) => {
             deck.update(cx, |deck, cx| {
                 deck.notes.heading_edit_buffer.push_str(&ch);
                 cx.notify();
             });
-            true
         }
+        EditAction::Newline => {}
+        EditAction::Ignore => {}
     }
+    true
 }
 
 #[cfg(test)]
@@ -162,5 +197,76 @@ mod tests {
         assert_eq!(deck.page, 1);
         nav_action_for("h", false).unwrap()(&mut deck);
         assert_eq!(deck.page, 0);
+    }
+
+    #[test]
+    fn note_edit_action_cancels_on_escape() {
+        assert_eq!(note_edit_action("escape", None), EditAction::Cancel);
+    }
+
+    #[test]
+    fn note_edit_action_backspace() {
+        assert_eq!(note_edit_action("backspace", None), EditAction::Backspace);
+    }
+
+    #[test]
+    fn note_edit_action_newline() {
+        assert_eq!(note_edit_action("enter", None), EditAction::Newline);
+    }
+
+    #[test]
+    fn note_edit_action_insert_accented_chars() {
+        assert_eq!(
+            note_edit_action("aacute", Some("á")),
+            EditAction::Insert("á".to_string())
+        );
+        assert_eq!(
+            note_edit_action("ntilde", Some("ñ")),
+            EditAction::Insert("ñ".to_string())
+        );
+        assert_eq!(
+            note_edit_action("a", Some("a")),
+            EditAction::Insert("a".to_string())
+        );
+        assert_eq!(
+            note_edit_action("oacute", Some("ó")),
+            EditAction::Insert("ó".to_string())
+        );
+    }
+
+    #[test]
+    fn note_edit_action_ignore_without_char() {
+        assert_eq!(note_edit_action("shift", None), EditAction::Ignore);
+    }
+
+    #[test]
+    fn heading_edit_action_cancels_on_escape() {
+        assert_eq!(heading_edit_action("escape", None), EditAction::Cancel);
+    }
+
+    #[test]
+    fn heading_edit_action_backspace() {
+        assert_eq!(
+            heading_edit_action("backspace", None),
+            EditAction::Backspace
+        );
+    }
+
+    #[test]
+    fn heading_edit_action_save_on_enter() {
+        assert_eq!(heading_edit_action("enter", None), EditAction::SaveHeading);
+    }
+
+    #[test]
+    fn heading_edit_action_insert_accented_chars() {
+        assert_eq!(
+            heading_edit_action("oacute", Some("ó")),
+            EditAction::Insert("ó".to_string())
+        );
+    }
+
+    #[test]
+    fn heading_edit_action_ignore_without_char() {
+        assert_eq!(heading_edit_action("shift", None), EditAction::Ignore);
     }
 }
