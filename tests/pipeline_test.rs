@@ -20,7 +20,10 @@ This is a *test*.
     };
     let pixmap = typst_render::render(page, &options);
     assert!(pixmap.width() > 0, "Rendered pixmap should have width > 0");
-    assert!(pixmap.height() > 0, "Rendered pixmap should have height > 0");
+    assert!(
+        pixmap.height() > 0,
+        "Rendered pixmap should have height > 0"
+    );
 }
 
 #[test]

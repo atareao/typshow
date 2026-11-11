@@ -1,5 +1,7 @@
-use egui::{CentralPanel, Context, Frame, Key, ViewportCommand, ViewportId, Margin, PointerButton, Sense};
 use crate::app::SharedState;
+use egui::{
+    CentralPanel, Context, Frame, Key, Margin, PointerButton, Sense, ViewportCommand, ViewportId,
+};
 use tracing::info;
 
 pub struct FullscreenApp {
@@ -29,20 +31,26 @@ impl FullscreenApp {
             if i.key_pressed(Key::L) {
                 last = true;
             }
-            if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::PageDown) {
+            if i.key_pressed(Key::J)
+                || i.key_pressed(Key::ArrowRight)
+                || i.key_pressed(Key::PageDown)
+            {
                 next = true;
             }
-            if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::PageUp) {
+            if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::PageUp)
+            {
                 prev = true;
             }
         });
 
         // 2. Procesar comandos de teclado de forma segura una vez liberado el candado del input de egui
         if esc {
-            info!("Presionado 'Esc' en pantalla completa. Solicitando cierre del viewport de proyección.");
+            info!(
+                "Presionado 'Esc' en pantalla completa. Solicitando cierre del viewport de proyección."
+            );
             ctx.send_viewport_cmd_to(
                 ViewportId::from_hash_of("fullscreen_viewport"),
-                ViewportCommand::Close
+                ViewportCommand::Close,
             );
         }
 
@@ -73,7 +81,10 @@ impl FullscreenApp {
                 let has_doc = self.state.lock().file_path.is_some();
                 if !has_doc {
                     ui.centered_and_justified(|ui| {
-                        ui.colored_label(egui::Color32::GRAY, "Proyección de Presentación (Esperando documento...)");
+                        ui.colored_label(
+                            egui::Color32::GRAY,
+                            "Proyección de Presentación (Esperando documento...)",
+                        );
                     });
                     return;
                 }
@@ -81,26 +92,25 @@ impl FullscreenApp {
                 let current_page_idx = self.state.lock().current_page;
 
                 // Obtenemos la textura de la página
-                let texture = self.state.lock().renderer.get_page(
-                    ctx,
-                    current_page_idx,
-                );
+                let texture = self.state.lock().renderer.get_page(ctx, current_page_idx);
 
                 if let Some(texture) = texture {
                     let available_size = ui.available_size();
-                    
+
                     // Dibujamos la imagen del PDF centrada y justificada ocupando el 100% del espacio
                     ui.centered_and_justified(|ui| {
                         // Hacemos que la imagen misma sea interactiva usando el Sense de clic
                         let response = ui.add(
                             egui::Image::new(&texture)
                                 .fit_to_exact_size(available_size)
-                                .sense(Sense::click())
+                                .sense(Sense::click()),
                         );
 
                         // 3. Capturar clics de ratón de forma local en la imagen sin consumir espacio antes
                         if response.clicked_by(PointerButton::Primary) {
-                            info!("Proyección - Clic izquierdo en la diapositiva. Página anterior.");
+                            info!(
+                                "Proyección - Clic izquierdo en la diapositiva. Página anterior."
+                            );
                             self.state.lock().prev_page();
                         }
                         if response.secondary_clicked() {

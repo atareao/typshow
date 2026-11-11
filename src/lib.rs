@@ -1,8 +1,8 @@
 mod app;
+mod fullscreen;
+mod presenter;
 mod render;
 mod theme;
-mod presenter;
-mod fullscreen;
 
 mod notes;
 mod notes_db;

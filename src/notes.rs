@@ -1,6 +1,6 @@
+use crate::notes_db::NotesDb;
 use egui::{Color32, RichText, Ui};
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
-use crate::notes_db::NotesDb;
 use tracing::{info, warn};
 
 pub enum MdElement {
@@ -45,11 +45,7 @@ impl Notes {
         }
     }
 
-    pub fn with_db(
-        typ_path: &str,
-        typ_content: &str,
-        total_pages: usize,
-    ) -> Self {
+    pub fn with_db(typ_path: &str, typ_content: &str, total_pages: usize) -> Self {
         let mut notes = Self::new();
         notes.total_pages = total_pages;
 
@@ -159,7 +155,11 @@ impl Notes {
         Ok(())
     }
 
-    pub fn reimport(&mut self, typ_content: &str, total_pages: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn reimport(
+        &mut self,
+        typ_content: &str,
+        total_pages: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref db) = self.db {
             db.clear_all()?;
             db.migrate_from_typ(typ_content, total_pages)?;
@@ -222,8 +222,12 @@ impl Notes {
             match element {
                 MdElement::Heading(level, text) => {
                     let size = match level {
-                        1 => 22.0, 2 => 18.0, 3 => 16.0,
-                        4 => 14.0, 5 => 13.0, _ => 12.0,
+                        1 => 22.0,
+                        2 => 18.0,
+                        3 => 16.0,
+                        4 => 14.0,
+                        5 => 13.0,
+                        _ => 12.0,
                     };
                     ui.add_space(8.0);
                     ui.label(RichText::new(text).size(size).strong());

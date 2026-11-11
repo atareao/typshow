@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use parking_lot::Mutex;
-use tracing::{info, debug};
 use crate::notes::Notes;
 use crate::render::Renderer;
+use parking_lot::Mutex;
+use std::sync::Arc;
+use tracing::{debug, info};
 
 pub struct AppState {
     pub current_page: usize,
@@ -37,7 +37,10 @@ impl AppState {
         self.typ_content = Some(typ_content.clone());
         self.notes = Notes::with_db(path, &typ_content, self.total_pages);
 
-        info!("Typst compilado con éxito. Total páginas: {}", self.total_pages);
+        info!(
+            "Typst compilado con éxito. Total páginas: {}",
+            self.total_pages
+        );
         Ok(())
     }
 
@@ -53,7 +56,11 @@ impl AppState {
         if self.current_page + 1 < self.total_pages {
             let old_page = self.current_page;
             self.current_page += 1;
-            debug!("Transición de página: {} -> {}", old_page + 1, self.current_page + 1);
+            debug!(
+                "Transición de página: {} -> {}",
+                old_page + 1,
+                self.current_page + 1
+            );
         }
     }
 
@@ -61,7 +68,11 @@ impl AppState {
         if self.current_page > 0 {
             let old_page = self.current_page;
             self.current_page -= 1;
-            debug!("Transición de página: {} -> {}", old_page + 1, self.current_page + 1);
+            debug!(
+                "Transición de página: {} -> {}",
+                old_page + 1,
+                self.current_page + 1
+            );
         }
     }
 
