@@ -4,7 +4,7 @@
 - **Tipo:** Migración de framework de UI (por fases)
 - **Change OpenSpec:** `openspec/changes/migracion-gpui/`
 - **Branch:** `feature/gpui-migration`
-- **Estado:** PENDIENTE DE APROBACIÓN
+- **Estado:** EN CURSO (Fase 1 completada: estructura, núcleo, presenter y audiencia básicos)
 - **Precedente:** spike `gpui-spike` (PR #13); veredicto de viabilidad en `docs/gpui-spike.md`
 
 ## Objetivo

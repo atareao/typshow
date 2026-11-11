@@ -6,6 +6,9 @@ mod theme;
 
 mod notes;
 mod notes_db;
+
+pub mod gpui_ui;
+
 pub use app::AppState;
 pub use app::SharedState;
 pub use notes::Notes;

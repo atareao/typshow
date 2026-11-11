@@ -25,3 +25,11 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "a1f2e21c2c95c6679
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "a1f2e21c2c95c6679945d88996e8324a6cc97e47", features = ["font-kit", "wayland", "x11"] }
 image = "0.25"
 
+
+[[bin]]
+name = "typshow"
+path = "src/main.rs"
+
+[[bin]]
+name = "typshow-gpui"
+path = "src/bin/typshow_gpui.rs"

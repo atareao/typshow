@@ -2,30 +2,30 @@
 
 ## 1. Preparación y estructura
 
-- [ ] 1.1 Crear branch `feature/gpui-migration` desde `development` (o desde el spike) y verificar `git status`
-- [ ] 1.2 Crear la estructura `src/gpui/` (app, presenter, audience, theme, icons) y un binario `typshow-gpui` coexistiendo con egui; verificar `cargo build`
-- [ ] 1.3 Definir la estrategia de coexistencia en `Cargo.toml` (dos binarios) y verificar que `typshow` (egui) sigue funcionando
+- [x] 1.1 Crear branch `feature/gpui-migration` desde `development` (o desde el spike) y verificar `git status`
+- [x] 1.2 Crear la estructura `src/gpui/` (app, presenter, audience, theme, icons) y un binario `typshow-gpui` coexistiendo con egui; verificar `cargo build`
+- [x] 1.3 Definir la estrategia de coexistencia en `Cargo.toml` (dos binarios) y verificar que `typshow` (egui) sigue funcionando
 
 ## 2. Núcleo: estado y render
 
-- [ ] 2.1 Implementar `Deck` con `TypstWorld` y caché de páginas `HashMap<usize, Arc<RenderImage>>`; verificar con test
+- [x] 2.1 Implementar `Deck` con `TypstWorld` y caché de páginas `HashMap<usize, Arc<RenderImage>>`; verificar con test
 - [ ] 2.2 Reutilizar `AppState` (navegación), `Notes` y `NotesDb` sin dependencias de egui; verificar `cargo test`
-- [ ] 2.3 Manejar errores de carga/compilación mostrando un mensaje; verificar con un `.typ` inválido
+- [x] 2.3 Manejar errores de carga/compilación mostrando un mensaje; verificar con un `.typ` inválido
 
 ## 3. Ventana de presentador
 
-- [ ] 3.1 Reproducir los paneles *Actual* y *Siguiente* con padding; verificar visualmente
+- [x] 3.1 Reproducir los paneles *Actual* y *Siguiente* con padding; verificar visualmente
 - [ ] 3.2 Implementar la barra de navegación (Inicio/Anterior/Siguiente/Final) con estado disabled; verificar límites
 - [ ] 3.3 Añadir "Abrir fichero" (`rfd`) filtrando `.typ`; verificar carga
 - [ ] 3.4 Añadir el toggle de proyección (mostrar/ocultar audiencia); verificar
-- [ ] 3.5 Añadir el toggle de tema claro/oscuro; verificar coherencia
+- [x] 3.5 Añadir el toggle de tema claro/oscuro; verificar coherencia
 - [ ] 3.6 Implementar el panel de notas (ver/editar/título/guardar/cancelar/nueva/eliminar/reimportar); verificar persistencia
 - [ ] 3.7 Implementar atajos de teclado y navegación por clic; verificar
 
 ## 4. Ventana de audiencia
 
-- [ ] 4.1 Implementar la ventana audiencia con `WindowBounds::Fullscreen`; verificar en Niri/Wayland
-- [ ] 4.2 Sincronizar página y tema con el presentador; verificar en ejecución
+- [x] 4.1 Implementar la ventana audiencia con `WindowBounds::Fullscreen`; verificar en Niri/Wayland
+- [x] 4.2 Sincronizar página y tema con el presentador; verificar en ejecución
 - [ ] 4.3 Implementar atajos y clic en la audiencia, y cierre con Esc; verificar
 - [ ] 4.4 Mover la audiencia al monitor secundario (Niri) si aplica; verificar o documentar limitación
 
