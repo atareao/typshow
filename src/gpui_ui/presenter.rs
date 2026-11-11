@@ -66,6 +66,7 @@ pub struct PresenterView {
     focus_handle: FocusHandle,
     audience: Option<WindowHandle<AudienceView>>,
     _sub: Subscription,
+    _close_sub: Subscription,
 }
 
 impl PresenterView {
@@ -74,11 +75,30 @@ impl PresenterView {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
         let _sub = cx.observe(&deck, |_this, _deck, cx| cx.notify());
+
+        // Mantiene `audience`/`projection` sincronizados cuando la ventana de
+        // audiencia se cierra (Esc, botón del compositor, etc.).
+        let this = cx.entity().downgrade();
+        let _close_sub = cx.on_window_closed(move |cx, window_id| {
+            this.update(cx, |view, cx| {
+                if view.audience.map(|h| h.window_id()) == Some(window_id) {
+                    view.audience = None;
+                    view.deck.update(cx, |deck, cx| {
+                        deck.projection = false;
+                        cx.notify();
+                    });
+                    cx.notify();
+                }
+            })
+            .ok();
+        });
+
         let mut view = Self {
             deck,
             focus_handle,
             audience: None,
             _sub,
+            _close_sub,
         };
         if view.deck.read(cx).projection {
             view.open_audience(cx);
@@ -109,10 +129,13 @@ impl PresenterView {
 
     /// Muestra u oculta la proyección, reconciliando el handle con el estado real.
     fn toggle_projection(&mut self, cx: &mut Context<Self>) {
-        if let Some(handle) = self.audience
-            && handle.is_active(cx) != Some(true)
-        {
-            self.audience = None;
+        // `is_active` refleja el FOCO, no si la ventana sigue viva: comprobamos
+        // pertenencia a `cx.windows()` para no dejar ventanas huérfanas ni duplicar.
+        if let Some(handle) = self.audience {
+            let id = handle.window_id();
+            if cx.windows().iter().all(|w| w.window_id() != id) {
+                self.audience = None;
+            }
         }
         if self.audience.is_some() {
             self.close_audience(cx);
@@ -208,7 +231,9 @@ impl PresenterView {
                                     MouseButton::Left,
                                     cx.listener(|this, _e, _w, cx| {
                                         this.with_deck(cx, |d| {
-                                            let _ = d.notes.save_current();
+                                            if let Err(e) = d.notes.save_current() {
+                                                d.error = Some(e.to_string());
+                                            }
                                         })
                                     }),
                                 ),
@@ -286,7 +311,9 @@ impl PresenterView {
                         MouseButton::Left,
                         cx.listener(|this, _e, _w, cx| {
                             this.with_deck(cx, |d| {
-                                let _ = d.notes.insert_note();
+                                if let Err(e) = d.notes.insert_note() {
+                                    d.error = Some(e.to_string());
+                                }
                             })
                         }),
                     ),
@@ -303,7 +330,9 @@ impl PresenterView {
                         MouseButton::Left,
                         cx.listener(|this, _e, _w, cx| {
                             this.with_deck(cx, |d| {
-                                let _ = d.notes.delete_current();
+                                if let Err(e) = d.notes.delete_current() {
+                                    d.error = Some(e.to_string());
+                                }
                             })
                         }),
                     ),
@@ -351,7 +380,7 @@ impl PresenterView {
                 div().text_sm().text_color(p.muted).child("(sin título)")
             })
             .child(body)
-            .child(actions)
+            .children((available && !editing).then_some(actions))
     }
 }
 
@@ -545,6 +574,15 @@ impl Render for PresenterView {
                             .child(action_button(&deck, "Tema", &p, Deck::toggle_theme)),
                     ),
             )
+            .children(error.clone().map(|e| {
+                div()
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(p.danger)
+                    .text_color(p.on_accent)
+                    .child(e)
+            }))
             .child(
                 div()
                     .flex()

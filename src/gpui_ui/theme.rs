@@ -18,6 +18,8 @@ pub struct Palette {
     pub accent: Rgba,
     /// Texto/icono sobre el acento.
     pub on_accent: Rgba,
+    /// Color de aviso/error.
+    pub danger: Rgba,
 }
 
 /// Devuelve la paleta del tema claro u oscuro.
@@ -31,6 +33,7 @@ pub fn palette(dark: bool) -> Palette {
             border: rgb(0x3a3a3a),
             accent: rgb(0x3584e4),
             on_accent: rgb(0xffffff),
+            danger: rgb(0xc01c28),
         }
     } else {
         Palette {
@@ -41,6 +44,7 @@ pub fn palette(dark: bool) -> Palette {
             border: rgb(0xd0d0d0),
             accent: rgb(0x3584e4),
             on_accent: rgb(0xffffff),
+            danger: rgb(0xc01c28),
         }
     }
 }

@@ -6,6 +6,8 @@ use std::sync::Arc;
 use gpui::RenderImage;
 use typst_layout::PagedDocument;
 
+use tracing::warn;
+
 use crate::Notes;
 
 /// Estado de la presentación compartido entre las ventanas.
@@ -105,8 +107,11 @@ impl Deck {
 
     /// Sincroniza el estado de las notas tras cambiar de página.
     fn after_nav(&mut self) {
-        if self.notes.editing && self.notes.dirty {
-            let _ = self.notes.save_current();
+        if self.notes.editing
+            && self.notes.dirty
+            && let Err(e) = self.notes.save_current()
+        {
+            warn!("No se pudo guardar la nota al navegar: {e}");
         }
         self.notes.load_page(self.page);
     }

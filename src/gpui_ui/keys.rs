@@ -10,10 +10,9 @@ use gpui::{AppContext, Entity, KeyDownEvent};
 
 use super::deck::Deck;
 
-/// Acción de navegación asociada a una tecla, si la hay.
-fn nav_action(event: &KeyDownEvent) -> Option<fn(&mut Deck)> {
-    let shift = event.keystroke.modifiers.shift;
-    match event.keystroke.key.as_str() {
+/// Acción de navegación asociada a una tecla (y si Shift está pulsado), si la hay.
+pub fn nav_action_for(key: &str, shift: bool) -> Option<fn(&mut Deck)> {
+    match key {
         // Flechas / navegación estándar
         "right" | "space" | "pagedown" => Some(Deck::next),
         "left" | "pageup" => Some(Deck::prev),
@@ -27,6 +26,11 @@ fn nav_action(event: &KeyDownEvent) -> Option<fn(&mut Deck)> {
         "t" => Some(Deck::toggle_theme),
         _ => None,
     }
+}
+
+/// Acción de navegación asociada a un evento de tecla, si la hay.
+fn nav_action(event: &KeyDownEvent) -> Option<fn(&mut Deck)> {
+    nav_action_for(&event.keystroke.key, event.keystroke.modifiers.shift)
 }
 
 /// Aplica la navegación si la tecla corresponde. Devuelve `true` si se gestionó.
@@ -78,5 +82,41 @@ pub fn apply_edit<C: AppContext>(deck: &Entity<Deck>, event: &KeyDownEvent, cx: 
             });
             true
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigation_keys_map() {
+        assert!(nav_action_for("right", false).is_some());
+        assert!(nav_action_for("space", false).is_some());
+        assert!(nav_action_for("h", false).is_some());
+        assert!(nav_action_for("l", false).is_some());
+        assert!(nav_action_for("t", false).is_some());
+        assert!(nav_action_for("q", false).is_none(), "tecla no mapeada");
+        assert!(nav_action_for("F5", false).is_none());
+    }
+
+    #[test]
+    fn shift_g_goes_last() {
+        let mut deck = Deck::empty();
+        deck.total = 5;
+        nav_action_for("g", false).unwrap()(&mut deck);
+        assert_eq!(deck.page, 0, "g va a la primera");
+        nav_action_for("g", true).unwrap()(&mut deck);
+        assert_eq!(deck.page, 4, "Shift+G va a la ultima");
+    }
+
+    #[test]
+    fn vim_h_l_move_one_page() {
+        let mut deck = Deck::empty();
+        deck.total = 3;
+        nav_action_for("l", false).unwrap()(&mut deck);
+        assert_eq!(deck.page, 1);
+        nav_action_for("h", false).unwrap()(&mut deck);
+        assert_eq!(deck.page, 0);
     }
 }
