@@ -11,6 +11,7 @@
 - [x] 2.1 Implementar `Deck` con `TypstWorld` y caché de páginas `HashMap<usize, Arc<RenderImage>>`; verificar con test
 - [ ] 2.2 Reutilizar `AppState` (navegación), `Notes` y `NotesDb` sin dependencias de egui; verificar `cargo test`
 - [x] 2.3 Manejar errores de carga/compilación mostrando un mensaje; verificar con un `.typ` inválido
+- [x] 2.4 Rasterizar las páginas fuera del hilo de UI (tarea en segundo plano) y acotar la caché a una LRU (`CACHE_CAP`) liberando la textura al desalojar; verificar con tests y en ejecución
 
 ## 3. Ventana de presentador
 

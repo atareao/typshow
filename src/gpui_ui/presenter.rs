@@ -499,9 +499,14 @@ impl Render for PresenterView {
                 deck.projection,
             )
         };
-        let (image, next_image) = self
-            .deck
-            .update(cx, |deck, _cx| (deck.current_image(), deck.next_image()));
+        let (image, next_image, loading, next_loading) = self.deck.update(cx, |deck, cx| {
+            let image = deck.current_image(cx);
+            let next = deck.next_image(cx);
+            let loading = image.is_none() && deck.is_pending(deck.page);
+            let next_loading =
+                next.is_none() && deck.next_index().is_some_and(|i| deck.is_pending(i));
+            (image, next, loading, next_loading)
+        });
         let (has_prev, has_next) = {
             let deck = self.deck.read(cx);
             (deck.has_prev(), deck.has_next())
@@ -536,7 +541,11 @@ impl Render for PresenterView {
                             .into_any_element(),
                         None => div()
                             .text_color(p.fg)
-                            .child(error.clone().unwrap_or_else(|| "Sin documento".to_string()))
+                            .child(if loading {
+                                "Cargando…".to_string()
+                            } else {
+                                error.clone().unwrap_or_else(|| "Sin documento".to_string())
+                            })
                             .into_any_element(),
                     }),
             );
@@ -565,7 +574,9 @@ impl Render for PresenterView {
                         None => div()
                             .text_sm()
                             .text_color(p.muted)
-                            .child(if total == 0 {
+                            .child(if next_loading {
+                                "Cargando…".to_string()
+                            } else if total == 0 {
                                 String::new()
                             } else {
                                 "Fin de la presentacion".to_string()

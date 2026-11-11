@@ -7,6 +7,7 @@ Migración de la UI de Typshow de `egui`/`eframe` a **GPUI** (issue #12), por fa
 - **3.8** edición del título de la nota: COMPLETADA.
 - **4.4** audiencia en monitor secundario: COMPLETADA (con limitación documentada).
 - **3.9** editor de notas con cursor (flechas/Home/End/Backspace/Delete + pegar Ctrl+V): COMPLETADA (tests).
+- **2.4** render asíncrono de páginas + caché LRU acotada: COMPLETADA (tests + ejecución).
 - PRs: **#13** (spike, mergeado), **#14** (migración, borrador) → `development`.
 
 ## Rama actual
@@ -25,7 +26,11 @@ Migración de la UI de Typshow de `egui`/`eframe` a **GPUI** (issue #12), por fa
   `←`/`→`/`Home`/`End`, `Backspace`/`Delete`, `Enter`, `Esc` y pegar `Ctrl+V`.
   Operaciones puras en `keys.rs` (`prev_boundary`, `insert_at`, `backspace_at`,
   `delete_at`, `display_with_caret`) con tests.
-- Verificado: `cargo build`/`test` (89 lib + 1 spike + 2 pipeline), clippy limpio.
+- **Render asíncrono**: la rasterización Typst corre en segundo plano
+  (`cx.background_spawn`); la UI muestra «Cargando…» y se repinta al terminar.
+- **Caché LRU acotada** (`CACHE_CAP = 6`) con `cx.drop_image` al desalojar;
+  `eviction_candidate` es pura y testeable.
+- Verificado: `cargo build`/`test` (92 lib + 1 spike + 2 pipeline), clippy limpio.
 
 ## Limitación conocida (4.4)
 GPUI solo respeta `display_id` en X11; en Wayland/Niri la ventana de audiencia se
@@ -47,9 +52,10 @@ pre-edit visual de la tecla muerta.
   que hacerla a mano.
 
 ## Siguiente
-1. **M4 (resto)** editor con `EntityInputHandler`: selección (Shift+flechas/ratón),
+1. **M3 (resto)** compilación Typst asíncrona al abrir `.typ` (`open_file`) y
+   `rfd::FileDialog` no bloqueante.
+2. **M4 (resto)** editor con `EntityInputHandler`: selección (Shift+flechas/ratón),
    resaltado y *pre-edit* de IME. (Los acentos ya funcionan sin él.)
-2. **M3** `rfd` asíncrono + compilación Typst fuera del hilo de UI.
 3. **2.2** desacoplar `Notes` de egui (`Notes::draw` usa egui).
 4. Fase 5 (tema Adwaita + iconos), Fase 6 (GPUI por defecto, retirar egui), Fase 7 (cierre).
 

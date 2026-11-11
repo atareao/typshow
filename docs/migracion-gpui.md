@@ -39,6 +39,13 @@ pipeline Typst→`RenderImage`.
   `→/espacio/l/j` siguiente, `←/h/k` anterior, `g`/`G` inicio/fin, `t` tema.
 - **Notas:** panel lateral con ver/editar/guardar/cancelar/nueva/eliminar/
   reimportar y edición del título (`Título`).
+- **Render asíncrono de páginas:** la rasterización Typst→RGBA se ejecuta en
+  segundo plano (`cx.background_spawn`), nunca en el hilo de UI. `Deck::image_at`
+  devuelve `None` mientras la página se está rasterizando (`is_pending`), la UI
+  muestra «Cargando…» y, al terminar, la imagen entra en la caché y se notifica.
+- **Caché acotada (LRU):** como máximo `CACHE_CAP` (6) páginas en memoria; al
+  desalojar se libera también la textura GPU con `cx.drop_image`. La decisión de
+  desalojo (`eviction_candidate`) es una función pura cubierta por tests.
 - **Editor de notas/título:** mantiene un cursor (offset en bytes). Durante la
   edición: `←`/`→` mueven el cursor, `Home`/`End` van a inicio/fin, `Backspace`/
   `Delete` borran, `Enter` inserta salto (o guarda el título), `Esc` cancela y
@@ -81,6 +88,10 @@ El nombre de la salida se obtiene con `niri msg outputs` (p. ej. `HDMI-A-1`,
 - **Teclado por `on_key_down`** para evitar el conflicto keybinding/edición.
 
 ## Pendiente / follow-ups
+
+- **Compilación Typst asíncrona:** abrir un `.typ` sigue compilando en el hilo de
+  UI (`open_file`); conviene moverlo a segundo plano como la rasterización.
+- **Abrir fichero asíncrono:** `rfd::FileDialog::pick_file` es bloqueante.
 
 - Editor de notas con `EntityInputHandler` para selección con ratón/teclado,
   resaltado de selección y *pre-edit* de IME (los acentos ya funcionan: GPUI

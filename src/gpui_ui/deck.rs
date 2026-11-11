@@ -1,14 +1,17 @@
 //! Estado compartido y render de páginas de la UI GPUI.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use gpui::RenderImage;
+use gpui::{Context, RenderImage};
 use typst_layout::PagedDocument;
 
 use tracing::warn;
 
 use crate::Notes;
+
+/// Número máximo de páginas rasterizadas en caché antes de desalojar la menos usada.
+pub const CACHE_CAP: usize = 6;
 
 /// Estado de la presentación compartido entre las ventanas.
 pub struct Deck {
@@ -30,8 +33,12 @@ pub struct Deck {
     pub notes_visible: bool,
     /// Proyección (ventana de audiencia) activa.
     pub projection: bool,
-    doc: Option<PagedDocument>,
+    doc: Option<Arc<PagedDocument>>,
     cache: HashMap<usize, Arc<RenderImage>>,
+    /// Orden de uso de la caché (LRU): el frente es el menos usado recientemente.
+    cache_order: VecDeque<usize>,
+    /// Páginas cuya rasterización está en curso (en segundo plano).
+    pending: HashSet<usize>,
 }
 
 impl Deck {
@@ -49,6 +56,8 @@ impl Deck {
             projection: true,
             doc: None,
             cache: HashMap::new(),
+            cache_order: VecDeque::new(),
+            pending: HashSet::new(),
         }
     }
 
@@ -76,8 +85,10 @@ impl Deck {
         match typst::compile::<PagedDocument>(&world).output {
             Ok(doc) => {
                 self.total = doc.pages().len();
-                self.doc = Some(doc);
+                self.doc = Some(Arc::new(doc));
                 self.cache.clear();
+                self.cache_order.clear();
+                self.pending.clear();
                 self.page = 0;
                 self.file_path = Some(path.to_string());
                 self.notes = Notes::with_db(path, &text, self.total);
@@ -177,42 +188,128 @@ impl Deck {
         self.next_index().is_some()
     }
 
-    /// Devuelve (renderizando y cacheando si hace falta) la imagen de la página `idx`.
-    pub fn image_at(&mut self, idx: usize) -> Option<Arc<RenderImage>> {
-        if let Some(image) = self.cache.get(&idx) {
-            return Some(image.clone());
+    /// Devuelve la imagen de la página `idx` si ya está rasterizada.
+    ///
+    /// Si no lo está, lanza su rasterización en **segundo plano** (fuera del hilo
+    /// de UI) y devuelve `None`; al terminar, la inserta en la caché y notifica.
+    /// Así el hilo de UI nunca bloquea al rasterizar una página.
+    pub fn image_at(&mut self, idx: usize, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
+        if let Some(image) = self.cache.get(&idx).cloned() {
+            self.touch(idx);
+            return Some(image);
         }
-        let page = self.doc.as_ref()?.pages().get(idx)?;
-        let pt_width = page.frame.size().x.to_pt();
-        let pixel_per_pt = if pt_width > 0.0 {
-            1920.0 / pt_width
-        } else {
-            2.0
+        let Some(doc) = self.doc.clone() else {
+            return None;
         };
-        let options = typst_render::RenderOptions {
-            pixel_per_pt: typst::utils::Scalar::new(pixel_per_pt),
-            render_bleed: false,
-        };
-        let pixmap = typst_render::render(page, &options);
-        let (width, height) = (pixmap.width(), pixmap.height());
-        let mut data = pixmap.data().to_vec();
-        rgba_to_bgra(&mut data);
-        let rgba = image::RgbaImage::from_raw(width, height, data)?;
-        let render_image = Arc::new(RenderImage::new(vec![image::Frame::new(rgba)]));
-        self.cache.insert(idx, render_image.clone());
-        Some(render_image)
+        if idx >= doc.pages().len() {
+            return None;
+        }
+        if self.pending.insert(idx) {
+            cx.spawn(async move |this, cx| {
+                let rendered = cx
+                    .background_executor()
+                    .spawn(async move { render_page(&doc, idx) })
+                    .await;
+                this.update(cx, |deck, cx| {
+                    deck.pending.remove(&idx);
+                    if let Some((width, height, data)) = rendered {
+                        deck.insert_cached(idx, width, height, data, cx);
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        None
     }
 
-    /// Imagen de la página actual.
-    pub fn current_image(&mut self) -> Option<Arc<RenderImage>> {
-        self.image_at(self.page)
+    /// Marca `idx` como la entrada más recientemente usada de la caché.
+    fn touch(&mut self, idx: usize) {
+        if let Some(pos) = self.cache_order.iter().position(|&i| i == idx) {
+            self.cache_order.remove(pos);
+        }
+        self.cache_order.push_back(idx);
     }
 
-    /// Imagen de la página siguiente, si existe.
-    pub fn next_image(&mut self) -> Option<Arc<RenderImage>> {
+    /// Inserta en la caché una página ya rasterizada, desalojando la LRU si hace falta.
+    fn insert_cached(
+        &mut self,
+        idx: usize,
+        width: u32,
+        height: u32,
+        data: Vec<u8>,
+        cx: &mut Context<Self>,
+    ) {
+        // Evita duplicados si dos peticiones solapadas acabaron a la vez.
+        if self.cache.contains_key(&idx) {
+            return;
+        }
+        let Some(rgba) = image::RgbaImage::from_raw(width, height, data) else {
+            warn!("No se pudo construir la imagen de la página {idx}");
+            return;
+        };
+        let image = Arc::new(RenderImage::new(vec![image::Frame::new(rgba)]));
+        // Desaloja LRU mientras se supere el límite, liberando también la textura GPU.
+        while self.cache.len() >= CACHE_CAP {
+            match eviction_candidate(&self.cache_order, idx) {
+                Some(victim) => {
+                    self.cache_order.retain(|&i| i != victim);
+                    if let Some(old) = self.cache.remove(&victim) {
+                        cx.drop_image(old, None);
+                    }
+                }
+                None => break,
+            }
+        }
+        self.cache.insert(idx, image);
+        self.cache_order.push_back(idx);
+    }
+
+    /// Imagen de la página actual (o `None` si aún se está rasterizando).
+    pub fn current_image(&mut self, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
+        self.image_at(self.page, cx)
+    }
+
+    /// Imagen de la página siguiente, si existe (o `None` si aún se rasteriza).
+    pub fn next_image(&mut self, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
         let idx = self.next_index()?;
-        self.image_at(idx)
+        self.image_at(idx, cx)
     }
+
+    /// `true` si la página `idx` se está rasterizando ahora mismo.
+    pub fn is_pending(&self, idx: usize) -> bool {
+        self.pending.contains(&idx)
+    }
+}
+
+/// Rasteriza la página `idx` a RGBA premultiplicado (BGRA no premultiplicado).
+///
+/// Función pura, pensada para ejecutarse **fuera del hilo de UI**.
+fn render_page(doc: &PagedDocument, idx: usize) -> Option<(u32, u32, Vec<u8>)> {
+    let page = doc.pages().get(idx)?;
+    let pt_width = page.frame.size().x.to_pt();
+    let pixel_per_pt = if pt_width > 0.0 {
+        1920.0 / pt_width
+    } else {
+        2.0
+    };
+    let options = typst_render::RenderOptions {
+        pixel_per_pt: typst::utils::Scalar::new(pixel_per_pt),
+        render_bleed: false,
+    };
+    let pixmap = typst_render::render(page, &options);
+    let (width, height) = (pixmap.width(), pixmap.height());
+    let mut data = pixmap.data().to_vec();
+    rgba_to_bgra(&mut data);
+    Some((width, height, data))
+}
+
+/// Candidato a desalojar de la caché LRU: la entrada más antigua que no sea `keep`.
+///
+/// Devuelve `None` si el orden está vacío o solo contiene `keep`.
+pub fn eviction_candidate(order: &VecDeque<usize>, keep: usize) -> Option<usize> {
+    order.iter().copied().find(|&i| i != keep)
 }
 
 /// Convierte RGBA premultiplicado (salida de Typst/tiny-skia) a BGRA no premultiplicado
@@ -309,24 +406,47 @@ mod tests {
     }
 
     #[test]
-    fn load_and_cache_page() {
+    fn load_sets_path_and_total() {
         let path = std::env::temp_dir().join("typshow_deck_test.typ");
         std::fs::write(&path, "= Hola\n\nTexto de prueba\n").unwrap();
-        let mut d = Deck::load(path.to_str().unwrap());
+        let d = Deck::load(path.to_str().unwrap());
         assert!(d.error.is_none(), "error inesperado: {:?}", d.error);
         assert!(d.total >= 1, "debe tener al menos una pagina");
         assert_eq!(d.file_path.as_deref(), path.to_str());
-
-        let a = d.image_at(0).expect("imagen de la pagina 0");
-        let b = d.image_at(0).expect("imagen de la pagina 0 (bis)");
-        assert!(
-            Arc::ptr_eq(&a, &b),
-            "la segunda llamada debe venir de la cache"
-        );
-
-        assert!(d.image_at(d.total).is_none(), "fuera de rango -> None");
-        assert!(d.current_image().is_some());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn render_page_produces_rgba_pixels() {
+        let path = std::env::temp_dir().join("typshow_deck_render_test.typ");
+        std::fs::write(&path, "= Hola\n\nTexto de prueba\n").unwrap();
+        let d = Deck::load(path.to_str().unwrap());
+        assert!(d.error.is_none(), "error inesperado: {:?}", d.error);
+        let doc = d.doc.as_ref().expect("documento compilado");
+        let (w, h, data) = render_page(doc, 0).expect("render de la pagina 0");
+        assert!(w > 0 && h > 0, "dimensiones validas");
+        assert_eq!(data.len(), (w as usize) * (h as usize) * 4, "RGBA completo");
+        assert!(
+            render_page(doc, d.total).is_none(),
+            "fuera de rango -> None"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn eviction_prefers_oldest_but_keeps_current() {
+        let order: VecDeque<usize> = [0, 1, 2].into_iter().collect();
+        assert_eq!(eviction_candidate(&order, 2), Some(0), "el mas antiguo");
+        assert_eq!(eviction_candidate(&order, 0), Some(1), "nunca la actual");
+        let single: VecDeque<usize> = [5].into_iter().collect();
+        assert_eq!(eviction_candidate(&single, 5), None, "no desaloja la unica");
+        let empty: VecDeque<usize> = VecDeque::new();
+        assert_eq!(eviction_candidate(&empty, 0), None);
+    }
+
+    #[test]
+    fn cache_cap_is_positive() {
+        assert!(CACHE_CAP >= 2, "debe caber al menos actual + siguiente");
     }
 
     #[test]

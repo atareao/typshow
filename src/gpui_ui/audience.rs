@@ -46,8 +46,17 @@ impl Render for AudienceView {
             let deck = self.deck.read(cx);
             (deck.dark, deck.error.clone())
         };
-        let image = self.deck.update(cx, |deck, _cx| deck.current_image());
+        let (image, loading) = self.deck.update(cx, |deck, cx| {
+            let image = deck.current_image(cx);
+            let loading = image.is_none() && deck.is_pending(deck.page);
+            (image, loading)
+        });
         let p = palette(dark);
+        let message = if loading && error.is_none() {
+            "Cargando…".to_string()
+        } else {
+            error.unwrap_or_else(|| "Sin documento".to_string())
+        };
 
         let content = match image {
             Some(image) => img(image)
@@ -60,7 +69,7 @@ impl Render for AudienceView {
                 .justify_center()
                 .items_center()
                 .text_color(p.fg)
-                .child(error.unwrap_or_else(|| "Sin documento".to_string()))
+                .child(message)
                 .into_any_element(),
         };
 
