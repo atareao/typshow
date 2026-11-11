@@ -425,7 +425,10 @@ impl Render for PresenterView {
                     .items_center()
                     .p_8()
                     .child(match image {
-                        Some(image) => img(image).object_fit(ObjectFit::Contain).into_any_element(),
+                        Some(image) => img(image)
+                            .size_full()
+                            .object_fit(ObjectFit::Contain)
+                            .into_any_element(),
                         None => div()
                             .text_color(p.fg)
                             .child(error.clone().unwrap_or_else(|| "Sin documento".to_string()))
@@ -450,7 +453,10 @@ impl Render for PresenterView {
                     .items_center()
                     .p_8()
                     .child(match next_image {
-                        Some(image) => img(image).object_fit(ObjectFit::Contain).into_any_element(),
+                        Some(image) => img(image)
+                            .size_full()
+                            .object_fit(ObjectFit::Contain)
+                            .into_any_element(),
                         None => div()
                             .text_sm()
                             .text_color(p.muted)
