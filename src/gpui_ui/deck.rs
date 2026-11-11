@@ -6,6 +6,8 @@ use std::sync::Arc;
 use gpui::RenderImage;
 use typst_layout::PagedDocument;
 
+use crate::Notes;
+
 /// Estado de la presentación compartido entre las ventanas.
 pub struct Deck {
     /// Página actual (0-based).
@@ -16,6 +18,16 @@ pub struct Deck {
     pub dark: bool,
     /// Mensaje de error, si lo hay.
     pub error: Option<String>,
+    /// Ruta del documento cargado.
+    pub file_path: Option<String>,
+    /// Fuente Typst del documento (para reimportar notas).
+    typ_content: Option<String>,
+    /// Notas del presentador.
+    pub notes: Notes,
+    /// Panel de notas visible.
+    pub notes_visible: bool,
+    /// Proyección (ventana de audiencia) activa.
+    pub projection: bool,
     doc: Option<PagedDocument>,
     cache: HashMap<usize, Arc<RenderImage>>,
 }
@@ -28,6 +40,11 @@ impl Deck {
             total: 0,
             dark: false,
             error: None,
+            file_path: None,
+            typ_content: None,
+            notes: Notes::new(),
+            notes_visible: true,
+            projection: true,
             doc: None,
             cache: HashMap::new(),
         }
@@ -43,28 +60,61 @@ impl Deck {
     /// Carga y compila un documento Typst desde `path`.
     pub fn load(path: &str) -> Self {
         let mut deck = Self::empty();
-        match std::fs::read_to_string(path) {
-            Ok(text) => {
-                let world = crate::TypstWorld::new(&text, path);
-                match typst::compile::<PagedDocument>(&world).output {
-                    Ok(doc) => {
-                        deck.total = doc.pages().len();
-                        deck.doc = Some(doc);
-                    }
-                    Err(diags) => {
-                        let msg: Vec<String> = diags.iter().map(|d| format!("{d:?}")).collect();
-                        deck.error = Some(format!("Error compilando Typst:\n{}", msg.join("\n")));
-                    }
-                }
-            }
-            Err(e) => deck.error = Some(format!("Error leyendo fichero: {e}")),
+        if let Err(msg) = deck.open_file(path) {
+            deck.error = Some(msg);
         }
         deck
+    }
+
+    /// Abre (o reabre) un documento desde `path`, reconstruyendo notas y caché.
+    pub fn open_file(&mut self, path: &str) -> Result<(), String> {
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("Error leyendo fichero: {e}"))?;
+        let world = crate::TypstWorld::new(&text, path);
+        match typst::compile::<PagedDocument>(&world).output {
+            Ok(doc) => {
+                self.total = doc.pages().len();
+                self.doc = Some(doc);
+                self.cache.clear();
+                self.page = 0;
+                self.file_path = Some(path.to_string());
+                self.notes = Notes::with_db(path, &text, self.total);
+                self.typ_content = Some(text);
+                self.error = None;
+                Ok(())
+            }
+            Err(diags) => {
+                let msg: Vec<String> = diags.iter().map(|d| format!("{d:?}")).collect();
+                let msg = format!("Error compilando Typst:\n{}", msg.join("\n"));
+                self.error = Some(msg.clone());
+                Err(msg)
+            }
+        }
+    }
+
+    /// Reconstruye las notas a partir del documento Typst cargado.
+    pub fn reimport_notes(&mut self) -> Result<(), String> {
+        let Some(content) = self.typ_content.clone() else {
+            return Err("No hay documento cargado".to_string());
+        };
+        let total = self.total;
+        self.notes
+            .reimport(&content, total)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Sincroniza el estado de las notas tras cambiar de página.
+    fn after_nav(&mut self) {
+        if self.notes.editing && self.notes.dirty {
+            let _ = self.notes.save_current();
+        }
+        self.notes.load_page(self.page);
     }
 
     /// Va a la primera página.
     pub fn first(&mut self) {
         self.page = 0;
+        self.after_nav();
     }
 
     /// Retrocede una página (sin salir del rango).
@@ -72,6 +122,7 @@ impl Deck {
         if self.page > 0 {
             self.page -= 1;
         }
+        self.after_nav();
     }
 
     /// Avanza una página (sin salir del rango).
@@ -79,6 +130,7 @@ impl Deck {
         if self.page + 1 < self.total {
             self.page += 1;
         }
+        self.after_nav();
     }
 
     /// Va a la última página.
@@ -86,6 +138,7 @@ impl Deck {
         if self.total > 0 {
             self.page = self.total - 1;
         }
+        self.after_nav();
     }
 
     /// Alterna el tema claro/oscuro.
@@ -93,10 +146,25 @@ impl Deck {
         self.dark = !self.dark;
     }
 
+    /// Alterna la visibilidad del panel de notas.
+    pub fn toggle_notes(&mut self) {
+        self.notes_visible = !self.notes_visible;
+    }
+
     /// Índice de la página siguiente, si existe.
     pub fn next_index(&self) -> Option<usize> {
         let n = self.page + 1;
         (n < self.total).then_some(n)
+    }
+
+    /// `true` si hay página anterior.
+    pub fn has_prev(&self) -> bool {
+        self.page > 0
+    }
+
+    /// `true` si hay página siguiente.
+    pub fn has_next(&self) -> bool {
+        self.next_index().is_some()
     }
 
     /// Devuelve (renderizando y cacheando si hace falta) la imagen de la página `idx`.
@@ -178,6 +246,16 @@ mod tests {
     }
 
     #[test]
+    fn navigation_flags() {
+        let mut d = deck_with(3);
+        assert!(!d.has_prev());
+        assert!(d.has_next());
+        d.last();
+        assert!(d.has_prev());
+        assert!(!d.has_next());
+    }
+
+    #[test]
     fn next_index_reports_last() {
         let mut d = deck_with(2);
         assert_eq!(d.next_index(), Some(1));
@@ -205,6 +283,14 @@ mod tests {
     }
 
     #[test]
+    fn toggle_notes_flips() {
+        let mut d = Deck::empty();
+        assert!(d.notes_visible);
+        d.toggle_notes();
+        assert!(!d.notes_visible);
+    }
+
+    #[test]
     fn load_invalid_path_sets_error() {
         let d = Deck::load("/nonexistent/no-existe-jamas.typ");
         assert!(d.error.is_some(), "debe registrar error de lectura");
@@ -219,6 +305,7 @@ mod tests {
         let mut d = Deck::load(path.to_str().unwrap());
         assert!(d.error.is_none(), "error inesperado: {:?}", d.error);
         assert!(d.total >= 1, "debe tener al menos una pagina");
+        assert_eq!(d.file_path.as_deref(), path.to_str());
 
         let a = d.image_at(0).expect("imagen de la pagina 0");
         let b = d.image_at(0).expect("imagen de la pagina 0 (bis)");
@@ -234,18 +321,22 @@ mod tests {
 
     #[test]
     fn rgba_to_bgra_unpremultiplies() {
+        // Opaco: solo cambia el orden de canales.
         let mut data = vec![255, 0, 0, 255];
         rgba_to_bgra(&mut data);
         assert_eq!(data, [0, 0, 255, 255]);
 
+        // Rojo premultiplicado con alpha 128 -> rojo a plena intensidad.
         let mut data = vec![128, 0, 0, 128];
         rgba_to_bgra(&mut data);
         assert_eq!(data, [0, 0, 254, 128]);
 
+        // Totalmente transparente: no se toca.
         let mut data = vec![0, 0, 0, 0];
         rgba_to_bgra(&mut data);
         assert_eq!(data, [0, 0, 0, 0]);
 
+        // Caso general premultiplicado (cada canal <= alpha).
         let mut data = vec![10, 20, 30, 40];
         rgba_to_bgra(&mut data);
         assert_eq!(data, [191, 127, 63, 40]);

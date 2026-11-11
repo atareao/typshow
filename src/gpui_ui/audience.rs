@@ -1,19 +1,18 @@
 //! Ventana de la audiencia: la página actual a pantalla completa.
 
 use gpui::{
-    AppContext, Context, Entity, FocusHandle, ObjectFit, Render, Subscription, Window, div, img,
-    prelude::*,
+    Context, Entity, FocusHandle, KeyDownEvent, MouseButton, ObjectFit, Render, Subscription,
+    Window, div, img, prelude::*,
 };
 
-use super::actions::{FirstPage, LastPage, NextPage, PrevPage, ToggleTheme};
 use super::deck::Deck;
+use super::keys::apply_nav;
 use super::theme::palette;
 
 /// Vista de la ventana de audiencia (pantalla completa).
 ///
-/// Registra las mismas acciones de teclado que el presentador: GPUI despacha
-/// las acciones por la ruta de foco de la ventana activa, y esta ventana
-/// (fullscreen) suele tener el foco, así que necesita sus propios handlers.
+/// Gestiona su propio foco y teclado: GPUI despacha los eventos por la ventana
+/// activa, y esta (fullscreen) suele tenerlo, así que necesita sus handlers.
 pub struct AudienceView {
     deck: Entity<Deck>,
     focus_handle: FocusHandle,
@@ -33,7 +32,7 @@ impl AudienceView {
         }
     }
 
-    fn run<C: AppContext>(&self, action: fn(&mut Deck), cx: &mut C) {
+    fn run(&self, action: fn(&mut Deck), cx: &mut Context<Self>) {
         self.deck.update(cx, |deck, cx| {
             action(deck);
             cx.notify();
@@ -60,6 +59,7 @@ impl Render for AudienceView {
                 .flex()
                 .justify_center()
                 .items_center()
+                .text_color(p.fg)
                 .child(error.unwrap_or_else(|| "Sin documento".to_string()))
                 .into_any_element(),
         };
@@ -69,12 +69,24 @@ impl Render for AudienceView {
             .bg(p.bg)
             .text_color(p.fg)
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(|this, _: &FirstPage, _window, cx| this.run(Deck::first, cx)))
-            .on_action(cx.listener(|this, _: &PrevPage, _window, cx| this.run(Deck::prev, cx)))
-            .on_action(cx.listener(|this, _: &NextPage, _window, cx| this.run(Deck::next, cx)))
-            .on_action(cx.listener(|this, _: &LastPage, _window, cx| this.run(Deck::last, cx)))
-            .on_action(
-                cx.listener(|this, _: &ToggleTheme, _window, cx| this.run(Deck::toggle_theme, cx)),
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" {
+                    this.deck.update(cx, |deck, cx| {
+                        deck.projection = false;
+                        cx.notify();
+                    });
+                    window.remove_window();
+                } else {
+                    apply_nav(&this.deck, event, cx);
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _e, _w, cx| this.run(Deck::prev, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _e, _w, cx| this.run(Deck::next, cx)),
             )
             .child(content)
     }
