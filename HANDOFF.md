@@ -1,39 +1,33 @@
-# HANDOFF — Spike GPUI (issue #12)
+# HANDOFF — Typshow
 
 ## Estado
-- **Rama:** `feature/gpui-spike` (desde `development`). Sin commitear todavía.
-- **Change OpenSpec:** `openspec/changes/gpui-spike/` (válido con `--strict`).
-- **Plan:** `plans/PLAN-001-ARCHIVED.md` (completado).
-- **Informe:** `docs/gpui-spike.md`.
+Migración de la UI de Typshow de `egui`/`eframe` a **GPUI** (issue #12), por fases.
+- **Fase 1 COMPLETADA** (estructura + núcleo + presenter + audiencia básicos).
+- PRs abiertos: **#13** (spike, `feature/gpui-spike`) y **#14** (migración Fase 1,
+  borrador, `feature/gpui-migration`) → `development`.
 
-## Qué se ha hecho
-Spike de viabilidad de GPUI en binario aislado `src/bin/gpui_spike.rs` (la app egui NO se tocó):
-dos ventanas nativas (presenter + audiencia fullscreen), estado compartido `Entity<Deck>`,
-render Typst→`RenderImage` (RGBA premultiplicado → BGRA no premultiplicado), navegación por
-botones y teclado (incl. atajos vim `h`/`j`/`k`/`l`/`g`/`G`), toggle de tema, manejo de errores.
+## Rama actual
+`feature/gpui-migration` (commit `ed10a81`). Coexisten dos binarios:
+`typshow` (egui, intacto) y `typshow-gpui` (nuevo).
 
-**Diseño UI final:** presenter con dos paneles apilados (*Actual* + *Siguiente*, `p_8` de
-padding por panel); audiencia a pantalla completa con la imagen a `size_full()`/`Contain` y sin rótulos.
+## Hecho
+- `src/gpui_ui/`: `deck.rs` (estado + render Typst→RenderImage con caché),
+  `presenter.rs`, `audience.rs`, `theme.rs`, `actions.rs`, `mod.rs`.
+- `src/bin/typshow_gpui.rs` + `[[bin]]` en `Cargo.toml`.
+- `openspec/changes/migracion-gpui/` (válido `--strict`) y `plans/PLAN-002.md`.
+- Auditoría `@rust-reviewer` aplicada: nav por teclado en la audiencia + delegación en
+  `gpui::swap_rgba_pa_to_bgra`.
+- Verificado: `cargo build`/`test` verdes (68 lib + 1 spike + 2 pipeline), clippy limpio
+  en `gpui_ui`, arranque real con la presentación de ejemplo.
 
-**Verificación visual (usuario, Niri/Wayland): OK** — dos ventanas abiertas, navegación
-sincronizada, colores correctos, tema y fullscreen correctos.
+## Siguiente (Fase 3 — presenter)
+1. Abrir fichero (`rfd`, filtrar `.typ`).
+2. Toggle de proyección (mostrar/ocultar audiencia).
+3. Panel de notas (ver/editar/guardar/reimportar) reutilizando `Notes`/`NotesDb`.
+4. Estado disabled de la barra de navegación; navegación por clic.
+5. Fase 4: cierre con Esc y audiencia en monitor secundario (Niri).
 
-## Verificación (real)
-- `cargo build --bin gpui_spike` → Finished.
-- `cargo test --bin gpui_spike` → 1 test ok (`rgba_to_bgra_unpremultiplies`).
-- `cargo build` / `cargo test` completos → verdes (61 + 1 + 2 = 64).
-- Arranque en Wayland: `timeout 10s cargo run --bin gpui_spike -- demo.typ` → exit 124 (viva, sin panic).
-
-## Veredicto
-Viabilidad técnica: **SÍ**. Recomendación: **NO migrar todavía** (dep no oficial, pre-1.0,
-árbol de compilación enorme, pérdida de ecosistema egui). Detalle en `docs/gpui-spike.md`.
-
-## Pendiente
-- [ ] Commit + PR de `feature/gpui-spike` → `development` (gitflow, gitmoji).
-- [ ] Confirmación visual del render (texto/página) en sesión gráfica.
-- [ ] Decidir archivar el change o convertirlo en plan de migración por fases.
-- [ ] `openspec archive gpui-spike` si se cierra el spike.
-
-## Notas
-- El servicio de subagentes estuvo intermitente (`ECONNREFUSED`); varias escrituras se hicieron
-  vía shell como excepción documentada.
+## Comandos útiles
+- Build/run: `cargo build --bin typshow-gpui && ./target/debug/typshow-gpui <file.typ>`
+- Matar: `pkill -x typshow_gpui` (NO `pkill -f`).
+- Tests: `cargo test` · Lint: `cargo clippy --bin typshow-gpui`
