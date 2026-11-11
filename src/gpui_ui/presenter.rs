@@ -7,7 +7,7 @@ use gpui::{
 
 use super::audience::AudienceView;
 use super::deck::Deck;
-use super::keys::{apply_edit, apply_nav};
+use super::keys::{apply_edit, apply_heading_edit, apply_nav};
 use super::theme::{Palette, palette};
 
 /// Ejecuta `action` sobre el `Deck` compartido y notifica a los observers.
@@ -109,10 +109,25 @@ impl PresenterView {
     /// Abre la ventana de audiencia (fullscreen) y guarda su handle.
     fn open_audience(&mut self, cx: &mut Context<Self>) {
         let deck = self.deck.clone();
+        // Preferimos un monitor secundario (no el primario) para la audiencia;
+        // si solo hay uno, el primario. En Niri/Wayland la ventana se abre en el
+        // display indicado y luego pasa a fullscreen en él.
+        let primary = cx.primary_display().map(|d| d.id());
+        let display_id = cx
+            .displays()
+            .into_iter()
+            .find(|d| Some(d.id()) != primary)
+            .or_else(|| cx.primary_display())
+            .map(|d| d.id());
         self.audience = cx
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Fullscreen(Bounds::default())),
+                    // `display_id` solo lo respeta el backend X11; en Wayland
+                    // (Niri) los toplevel lo ignoran. Para fijar la salida hay
+                    // que usar una regla de compositor sobre `app_id`.
+                    display_id,
+                    app_id: Some("com.atareao.typshow.audience".to_string()),
                     ..Default::default()
                 },
                 move |window, cx| cx.new(|cx| AudienceView::new(deck, window, cx)),
@@ -186,6 +201,8 @@ impl PresenterView {
         let heading = notes.heading.clone();
         let content = notes.note_content.clone().unwrap_or_default();
         let edit_buffer = notes.edit_buffer.clone();
+        let heading_editing = notes.heading_editing;
+        let heading_edit_buffer = notes.heading_edit_buffer.clone();
 
         let body: gpui::AnyElement = if !available {
             div()
@@ -355,6 +372,21 @@ impl PresenterView {
                             })
                         }),
                     ),
+            )
+            .child(
+                div()
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(p.surface)
+                    .text_color(p.fg)
+                    .child("Título")
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _e, _w, cx| {
+                            this.with_deck(cx, |d| d.notes.start_edit_heading())
+                        }),
+                    ),
             );
 
         div()
@@ -374,13 +406,83 @@ impl PresenterView {
                     .items_center()
                     .child(div().child("Notas")),
             )
-            .child(if let Some(h) = heading {
-                div().text_sm().text_color(p.muted).child(h)
-            } else {
-                div().text_sm().text_color(p.muted).child("(sin título)")
-            })
+            .children(available.then(|| {
+                if heading_editing {
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .px_2()
+                                .py_1()
+                                .bg(p.surface)
+                                .border_1()
+                                .border_color(p.accent)
+                                .rounded_md()
+                                .text_color(p.fg)
+                                .child(if heading_edit_buffer.is_empty() {
+                                    "Título…".to_string()
+                                } else {
+                                    heading_edit_buffer.clone()
+                                }),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .bg(p.accent)
+                                .text_color(p.on_accent)
+                                .child("OK")
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _e, _w, cx| {
+                                        this.with_deck(cx, |d| {
+                                            if let Err(e) = d.notes.save_heading() {
+                                                d.error = Some(e.to_string());
+                                            }
+                                        })
+                                    }),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .bg(p.surface)
+                                .text_color(p.fg)
+                                .child("X")
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _e, _w, cx| {
+                                        this.with_deck(cx, |d| d.notes.cancel_edit_heading())
+                                    }),
+                                ),
+                        )
+                } else {
+                    div()
+                        .w_full()
+                        .overflow_hidden()
+                        .text_sm()
+                        .text_color(p.muted)
+                        .child(
+                            heading
+                                .clone()
+                                .unwrap_or_else(|| "(sin título)".to_string()),
+                        )
+                }
+            }))
             .child(body)
-            .children((available && !editing).then_some(actions))
+            .children((available && !editing && !heading_editing).then_some(actions))
     }
 }
 
@@ -404,7 +506,10 @@ impl Render for PresenterView {
             let deck = self.deck.read(cx);
             (deck.has_prev(), deck.has_next())
         };
-        let editing = self.deck.read(cx).notes.editing;
+        let (editing, heading_editing) = {
+            let notes = &self.deck.read(cx).notes;
+            (notes.editing, notes.heading_editing)
+        };
 
         let p = palette(dark);
         let total_label = if total == 0 { 1 } else { total };
@@ -477,7 +582,7 @@ impl Render for PresenterView {
             .on_mouse_down(MouseButton::Left, {
                 let deck = deck.clone();
                 move |_event, _window, cx| {
-                    if !deck.read(cx).notes.editing {
+                    if !deck.read(cx).is_editing() {
                         run(&deck, Deck::prev, cx);
                     }
                 }
@@ -485,7 +590,7 @@ impl Render for PresenterView {
             .on_mouse_down(MouseButton::Right, {
                 let deck = deck.clone();
                 move |_event, _window, cx| {
-                    if !deck.read(cx).notes.editing {
+                    if !deck.read(cx).is_editing() {
                         run(&deck, Deck::next, cx);
                     }
                 }
@@ -517,9 +622,14 @@ impl Render for PresenterView {
             .text_color(p.fg)
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                let editing = this.deck.read(cx).notes.editing;
+                let (editing, heading_editing) = {
+                    let notes = &this.deck.read(cx).notes;
+                    (notes.editing, notes.heading_editing)
+                };
                 if editing {
                     apply_edit(&this.deck, event, cx);
+                } else if heading_editing {
+                    apply_heading_edit(&this.deck, event, cx);
                 } else {
                     apply_nav(&this.deck, event, cx);
                 }
@@ -603,6 +713,12 @@ impl Render for PresenterView {
                     .text_sm()
                     .text_color(p.accent)
                     .child("Editando nota — Esc para cancelar")
+            }))
+            .children(heading_editing.then(|| {
+                div()
+                    .text_sm()
+                    .text_color(p.accent)
+                    .child("Editando título — Enter para guardar, Esc para cancelar")
             }))
             .child(main_row)
     }

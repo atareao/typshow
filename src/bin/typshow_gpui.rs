@@ -27,6 +27,8 @@ fn main() {
                     size(px(900.), px(650.)),
                     cx,
                 ))),
+                // `app_id` estable para reglas de compositor (p. ej. Niri).
+                app_id: Some("com.atareao.typshow.presenter".to_string()),
                 ..Default::default()
             },
             move |window, cx| cx.new(|cx| PresenterView::new(presenter_deck, window, cx)),

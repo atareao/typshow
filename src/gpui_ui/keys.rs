@@ -85,6 +85,50 @@ pub fn apply_edit<C: AppContext>(deck: &Entity<Deck>, event: &KeyDownEvent, cx: 
     }
 }
 
+/// Aplica una pulsación al editor del título (heading) de la nota.
+/// Devuelve `true` si se gestionó.
+pub fn apply_heading_edit<C: AppContext>(
+    deck: &Entity<Deck>,
+    event: &KeyDownEvent,
+    cx: &mut C,
+) -> bool {
+    match event.keystroke.key.as_str() {
+        "escape" => {
+            deck.update(cx, |deck, cx| {
+                deck.notes.cancel_edit_heading();
+                cx.notify();
+            });
+            true
+        }
+        "backspace" => {
+            deck.update(cx, |deck, cx| {
+                deck.notes.heading_edit_buffer.pop();
+                cx.notify();
+            });
+            true
+        }
+        "enter" => {
+            deck.update(cx, |deck, cx| {
+                if let Err(e) = deck.notes.save_heading() {
+                    deck.error = Some(e.to_string());
+                }
+                cx.notify();
+            });
+            true
+        }
+        _ => {
+            let Some(ch) = event.keystroke.key_char.clone() else {
+                return false;
+            };
+            deck.update(cx, |deck, cx| {
+                deck.notes.heading_edit_buffer.push_str(&ch);
+                cx.notify();
+            });
+            true
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

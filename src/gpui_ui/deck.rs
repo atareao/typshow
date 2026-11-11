@@ -162,6 +162,11 @@ impl Deck {
         (n < self.total).then_some(n)
     }
 
+    /// `true` si se está editando algo (cuerpo de nota o título).
+    pub fn is_editing(&self) -> bool {
+        self.notes.editing || self.notes.heading_editing
+    }
+
     /// `true` si hay página anterior.
     pub fn has_prev(&self) -> bool {
         self.page > 0

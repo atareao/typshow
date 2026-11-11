@@ -20,7 +20,7 @@
 - [x] 3.4 Añadir el toggle de proyección (mostrar/ocultar audiencia); verificar
 - [x] 3.5 Añadir el toggle de tema claro/oscuro; verificar coherencia
 - [x] 3.6 Implementar el panel de notas (ver/editar/guardar/cancelar/nueva/eliminar/reimportar); verificar persistencia
-- [ ] 3.8 Editar el título (heading) de la nota desde el panel
+- [x] 3.8 Editar el título (heading) de la nota desde el panel
 - [x] 3.7 Implementar atajos de teclado y navegación por clic; verificar
 
 ## 4. Ventana de audiencia
@@ -28,7 +28,7 @@
 - [x] 4.1 Implementar la ventana audiencia con `WindowBounds::Fullscreen`; verificar en Niri/Wayland
 - [x] 4.2 Sincronizar página y tema con el presentador; verificar en ejecución
 - [x] 4.3 Implementar atajos y clic en la audiencia, y cierre con Esc; verificar
-- [ ] 4.4 Mover la audiencia al monitor secundario (Niri) si aplica; verificar o documentar limitación
+- [x] 4.4 Audiencia en monitor secundario: GPUI ignora `display_id` en toplevel Wayland; se fija `app_id` (`com.atareao.typshow.audience`) y se documenta la regla de compositor (Niri `open-on-output`)
 
 ## 5. Tema e iconos
 
