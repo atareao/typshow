@@ -42,17 +42,19 @@ impl AudienceView {
 
 impl Render for AudienceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (dark, error) = {
+        let (dark, error, compiling) = {
             let deck = self.deck.read(cx);
-            (deck.dark, deck.error.clone())
+            (deck.dark, deck.error.clone(), deck.loading)
         };
         let (image, loading) = self.deck.update(cx, |deck, cx| {
             let image = deck.current_image(cx);
-            let loading = image.is_none() && deck.is_pending(deck.page);
+            let loading = image.is_none() && (deck.loading || deck.is_pending(deck.page));
             (image, loading)
         });
         let p = palette(dark);
-        let message = if loading && error.is_none() {
+        let message = if compiling {
+            "Compilando…".to_string()
+        } else if loading && error.is_none() {
             "Cargando…".to_string()
         } else {
             error.unwrap_or_else(|| "Sin documento".to_string())

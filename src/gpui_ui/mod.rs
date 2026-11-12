@@ -6,6 +6,7 @@
 
 pub mod audience;
 pub mod deck;
+pub mod edit;
 pub mod keys;
 pub mod presenter;
 pub mod theme;

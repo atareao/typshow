@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use gpui::{Context, RenderImage};
+use gpui::{AppContext, Context, RenderImage};
 use typst_layout::PagedDocument;
 
 use tracing::warn;
@@ -23,6 +23,11 @@ pub struct Deck {
     pub dark: bool,
     /// Mensaje de error, si lo hay.
     pub error: Option<String>,
+    /// Hay una compilación Typst en curso (apertura asíncrona desde la UI).
+    pub loading: bool,
+    /// Generación del documento: se incrementa en cada carga para descartar
+    /// resultados (compilaciones o rasterizaciones) de documentos obsoletos.
+    doc_generation: u64,
     /// Ruta del documento cargado.
     pub file_path: Option<String>,
     /// Fuente Typst del documento (para reimportar notas).
@@ -49,6 +54,8 @@ impl Deck {
             total: 0,
             dark: false,
             error: None,
+            loading: false,
+            doc_generation: 0,
             file_path: None,
             typ_content: None,
             notes: Notes::new(),
@@ -71,38 +78,139 @@ impl Deck {
     /// Carga y compila un documento Typst desde `path`.
     pub fn load(path: &str) -> Self {
         let mut deck = Self::empty();
-        if let Err(msg) = deck.open_file(path) {
-            deck.error = Some(msg);
-        }
+        // `open_file` ya deja el mensaje de error en el deck si falla.
+        let _ = deck.open_file(path);
         deck
     }
 
+    /// Marca el inicio de una carga y devuelve la nueva generación de documento.
+    ///
+    /// Incrementa `doc_generation` (invalidando compilaciones y rasterizaciones
+    /// en vuelo), activa `loading` y limpia el error previo.
+    fn begin_load(&mut self) -> u64 {
+        self.doc_generation = self.doc_generation.wrapping_add(1);
+        self.loading = true;
+        self.error = None;
+        self.doc_generation
+    }
+
+    /// `true` si `generation` corresponde al documento actual.
+    fn accepts_generation(&self, generation: u64) -> bool {
+        generation == self.doc_generation
+    }
+
     /// Abre (o reabre) un documento desde `path`, reconstruyendo notas y caché.
+    ///
+    /// Variante síncrona, pensada para el arranque por CLI. La UI debe usar
+    /// [`Deck::open_file_async`] para no bloquear el hilo de UI.
     pub fn open_file(&mut self, path: &str) -> Result<(), String> {
-        let text =
-            std::fs::read_to_string(path).map_err(|e| format!("Error leyendo fichero: {e}"))?;
-        let world = crate::TypstWorld::new(&text, path);
-        match typst::compile::<PagedDocument>(&world).output {
+        let generation = self.begin_load();
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                let msg = format!("Error leyendo fichero: {e}");
+                self.loading = false;
+                self.error = Some(msg.clone());
+                return Err(msg);
+            }
+        };
+        let result = compile_typst(&text, path);
+        // Sin `cx` no hay texturas que liberar: la caché está vacía al arrancar.
+        self.apply_compiled(generation, path, text, None, result, None)
+    }
+
+    /// Abre un documento en **segundo plano**, sin bloquear el hilo de UI.
+    ///
+    /// Marca `loading`, limpia el error previo y lanza la lectura, la compilación
+    /// y la apertura de la base de datos de notas en el executor de fondo; al
+    /// terminar aplica el resultado en el hilo de UI mediante
+    /// [`Deck::apply_compiled`] y notifica. Si mientras tanto se pidió otra
+    /// apertura, el resultado se descarta por generación.
+    pub fn open_file_async(&mut self, path: &str, cx: &mut Context<Self>) {
+        let generation = self.begin_load();
+        cx.notify();
+        let path = path.to_string();
+        cx.spawn(async move |this, cx| {
+            let (path, text, notes, result) = cx
+                .background_spawn(async move {
+                    let text = match std::fs::read_to_string(&path) {
+                        Ok(text) => text,
+                        Err(e) => {
+                            let msg = format!("Error leyendo fichero: {e}");
+                            return (path, String::new(), None, Err(msg));
+                        }
+                    };
+                    let result = compile_typst(&text, &path);
+                    // SQLite + migración de notas fuera del hilo de UI.
+                    let notes = match &result {
+                        Ok(doc) => Some(Notes::with_db(&path, &text, doc.pages().len())),
+                        Err(_) => None,
+                    };
+                    (path, text, notes, result)
+                })
+                .await;
+            this.update(cx, |deck, cx| {
+                let _ = deck.apply_compiled(generation, &path, text, notes, result, Some(cx));
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Aplica el resultado de compilar `text` (leído de `path`) al estado del deck.
+    ///
+    /// Es **no-op** si `generation` no es la generación actual (llegó tarde una carga
+    /// anterior). En éxito resetea página, caché y notas; en error registra el
+    /// mensaje y **conserva** el documento y la caché anteriores para no dejar la
+    /// presentación en blanco. En ambos casos termina el estado de carga.
+    fn apply_compiled(
+        &mut self,
+        generation: u64,
+        path: &str,
+        text: String,
+        notes: Option<Notes>,
+        result: Result<PagedDocument, String>,
+        cx: Option<&mut Context<Self>>,
+    ) -> Result<(), String> {
+        if !self.accepts_generation(generation) {
+            return Ok(());
+        }
+        self.loading = false;
+        match result {
             Ok(doc) => {
-                self.total = doc.pages().len();
+                let total = doc.pages().len();
+                self.clear_cache(cx);
+                self.total = total;
                 self.doc = Some(Arc::new(doc));
-                self.cache.clear();
-                self.cache_order.clear();
-                self.pending.clear();
                 self.page = 0;
                 self.file_path = Some(path.to_string());
-                self.notes = Notes::with_db(path, &text, self.total);
+                let mut notes = notes.unwrap_or_else(|| Notes::with_db(path, &text, total));
+                notes.total_pages = total;
+                self.notes = notes;
                 self.typ_content = Some(text);
                 self.error = None;
                 Ok(())
             }
-            Err(diags) => {
-                let msg: Vec<String> = diags.iter().map(|d| format!("{d:?}")).collect();
-                let msg = format!("Error compilando Typst:\n{}", msg.join("\n"));
+            Err(msg) => {
                 self.error = Some(msg.clone());
                 Err(msg)
             }
         }
+    }
+
+    /// Vacía la caché de páginas, liberando las texturas GPU si hay `cx`.
+    fn clear_cache(&mut self, cx: Option<&mut Context<Self>>) {
+        match cx {
+            Some(cx) => {
+                for (_, image) in self.cache.drain() {
+                    cx.drop_image(image, None);
+                }
+            }
+            None => self.cache.clear(),
+        }
+        self.cache_order.clear();
+        self.pending.clear();
     }
 
     /// Reconstruye las notas a partir del documento Typst cargado.
@@ -194,6 +302,11 @@ impl Deck {
     /// de UI) y devuelve `None`; al terminar, la inserta en la caché y notifica.
     /// Así el hilo de UI nunca bloquea al rasterizar una página.
     pub fn image_at(&mut self, idx: usize, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
+        // Mientras se compila un documento nuevo no se rasteriza el anterior:
+        // está a punto de ser reemplazado y el trabajo se tiraría.
+        if self.loading {
+            return None;
+        }
         if let Some(image) = self.cache.get(&idx).cloned() {
             self.touch(idx);
             return Some(image);
@@ -204,6 +317,7 @@ impl Deck {
         if idx >= doc.pages().len() {
             return None;
         }
+        let generation = self.doc_generation;
         if self.pending.insert(idx) {
             cx.spawn(async move |this, cx| {
                 let rendered = cx
@@ -211,9 +325,15 @@ impl Deck {
                     .spawn(async move { render_page(&doc, idx) })
                     .await;
                 this.update(cx, |deck, cx| {
+                    // Descarta el resultado si el documento cambió mientras tanto.
+                    if !deck.accepts_generation(generation) {
+                        return;
+                    }
                     deck.pending.remove(&idx);
                     if let Some((width, height, data)) = rendered {
-                        deck.insert_cached(idx, width, height, data, cx);
+                        for old in deck.insert_cached(generation, idx, width, height, data) {
+                            cx.drop_image(old, None);
+                        }
                     }
                     cx.notify();
                 })
@@ -233,30 +353,37 @@ impl Deck {
     }
 
     /// Inserta en la caché una página ya rasterizada, desalojando la LRU si hace falta.
+    ///
+    /// Es no-op si `generation` no es la generación actual. Devuelve las imágenes
+    /// desalojadas para que el llamador libere sus texturas GPU.
     fn insert_cached(
         &mut self,
+        generation: u64,
         idx: usize,
         width: u32,
         height: u32,
         data: Vec<u8>,
-        cx: &mut Context<Self>,
-    ) {
+    ) -> Vec<Arc<RenderImage>> {
+        let mut evicted = Vec::new();
+        if !self.accepts_generation(generation) {
+            return evicted;
+        }
         // Evita duplicados si dos peticiones solapadas acabaron a la vez.
         if self.cache.contains_key(&idx) {
-            return;
+            return evicted;
         }
         let Some(rgba) = image::RgbaImage::from_raw(width, height, data) else {
             warn!("No se pudo construir la imagen de la página {idx}");
-            return;
+            return evicted;
         };
         let image = Arc::new(RenderImage::new(vec![image::Frame::new(rgba)]));
-        // Desaloja LRU mientras se supere el límite, liberando también la textura GPU.
+        // Desaloja LRU mientras se supere el límite.
         while self.cache.len() >= CACHE_CAP {
             match eviction_candidate(&self.cache_order, idx) {
                 Some(victim) => {
                     self.cache_order.retain(|&i| i != victim);
                     if let Some(old) = self.cache.remove(&victim) {
-                        cx.drop_image(old, None);
+                        evicted.push(old);
                     }
                 }
                 None => break,
@@ -264,6 +391,7 @@ impl Deck {
         }
         self.cache.insert(idx, image);
         self.cache_order.push_back(idx);
+        evicted
     }
 
     /// Imagen de la página actual (o `None` si aún se está rasterizando).
@@ -280,6 +408,25 @@ impl Deck {
     /// `true` si la página `idx` se está rasterizando ahora mismo.
     pub fn is_pending(&self, idx: usize) -> bool {
         self.pending.contains(&idx)
+    }
+}
+
+/// Compila `text` como documento Typst paginado.
+///
+/// Función pura (sin estado de UI), apta para ejecutarse **fuera del hilo de UI**.
+/// Un pánico del compilador se captura para que `loading` nunca quede colgado.
+fn compile_typst(text: &str, path: &str) -> Result<PagedDocument, String> {
+    let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let world = crate::TypstWorld::new(text, path);
+        typst::compile::<PagedDocument>(&world).output
+    }));
+    match compiled {
+        Ok(Ok(doc)) => Ok(doc),
+        Ok(Err(diags)) => {
+            let msg: Vec<String> = diags.iter().map(|d| format!("{d:?}")).collect();
+            Err(format!("Error compilando Typst:\n{}", msg.join("\n")))
+        }
+        Err(_) => Err("Error interno compilando Typst".to_string()),
     }
 }
 
@@ -334,6 +481,13 @@ mod tests {
         let mut d = Deck::empty();
         d.total = total;
         d
+    }
+
+    /// Elimina la base de datos de notas (y sus sidecars WAL/SHM) de un `.typ` de prueba.
+    fn cleanup_db(typ_path: &std::path::Path) {
+        for ext in ["typshow.db", "typshow.db-wal", "typshow.db-shm"] {
+            let _ = std::fs::remove_file(typ_path.with_extension(ext));
+        }
     }
 
     #[test]
@@ -414,6 +568,7 @@ mod tests {
         assert!(d.total >= 1, "debe tener al menos una pagina");
         assert_eq!(d.file_path.as_deref(), path.to_str());
         let _ = std::fs::remove_file(&path);
+        cleanup_db(&path);
     }
 
     #[test]
@@ -431,6 +586,251 @@ mod tests {
             "fuera de rango -> None"
         );
         let _ = std::fs::remove_file(&path);
+        cleanup_db(&path);
+    }
+
+    /// Compila `text` en un `PagedDocument` de prueba (mismo camino que `open_file`).
+    fn compiled(text: &str) -> PagedDocument {
+        let world = crate::TypstWorld::new(text, "/tmp/typshow_deck_apply_test.typ");
+        typst::compile::<PagedDocument>(&world)
+            .output
+            .expect("el Typst de prueba debe compilar")
+    }
+
+    /// Inserta una entrada ficticia en la caché y en `pending` para comprobar su limpieza.
+    fn seed_cache(d: &mut Deck) {
+        let rgba = image::RgbaImage::from_raw(1, 1, vec![0, 0, 0, 255]).expect("rgba 1x1");
+        d.cache
+            .insert(0, Arc::new(RenderImage::new(vec![image::Frame::new(rgba)])));
+        d.cache_order.push_back(0);
+        d.pending.insert(0);
+    }
+
+    #[test]
+    fn apply_compiled_ok_resets_state() {
+        let mut d = Deck::empty();
+        d.page = 2;
+        d.total = 5;
+        d.error = Some("error previo".to_string());
+        d.file_path = Some("/tmp/viejo.typ".to_string());
+        d.typ_content = Some("= Viejo".to_string());
+        seed_cache(&mut d);
+
+        let text = "= Hola\n\nTexto de prueba\n".to_string();
+        let doc = compiled(&text);
+        let expected_total = doc.pages().len();
+        let generation = d.begin_load();
+        let r = d.apply_compiled(
+            generation,
+            "/tmp/nuevo.typ",
+            text.clone(),
+            Some(Notes::new()),
+            Ok(doc),
+            None,
+        );
+        assert!(r.is_ok());
+
+        assert_eq!(d.total, expected_total, "total del documento nuevo");
+        assert_eq!(d.page, 0, "vuelve a la primera página");
+        assert_eq!(d.file_path.as_deref(), Some("/tmp/nuevo.typ"));
+        assert_eq!(d.typ_content.as_deref(), Some(text.as_str()));
+        assert!(d.doc.is_some(), "documento aplicado");
+        assert!(d.error.is_none(), "limpia el error previo");
+        assert!(d.cache.is_empty(), "limpia la caché");
+        assert!(d.cache_order.is_empty(), "limpia el orden LRU");
+        assert!(
+            d.pending.is_empty(),
+            "limpia las rasterizaciones pendientes"
+        );
+        assert_eq!(d.notes.total_pages, expected_total, "notas reconstruidas");
+    }
+
+    #[test]
+    fn apply_compiled_error_keeps_previous_doc() {
+        let mut d = Deck::empty();
+        let text = "= Hola\n\nTexto de prueba\n".to_string();
+        let doc = compiled(&text);
+        let previous_total = doc.pages().len();
+        let generation = d.begin_load();
+        d.apply_compiled(
+            generation,
+            "/tmp/bueno.typ",
+            text,
+            Some(Notes::new()),
+            Ok(doc),
+            None,
+        )
+        .expect("aplica el documento bueno");
+        assert!(d.doc.is_some());
+
+        let generation = d.begin_load();
+        let r = d.apply_compiled(
+            generation,
+            "/tmp/malo.typ",
+            "= Roto".to_string(),
+            None,
+            Err("Error compilando Typst: roto".to_string()),
+            None,
+        );
+        assert!(r.is_err(), "el error se propaga");
+
+        assert_eq!(
+            d.error.as_deref(),
+            Some("Error compilando Typst: roto"),
+            "registra el error"
+        );
+        assert!(d.doc.is_some(), "conserva el documento anterior");
+        assert_eq!(d.total, previous_total, "conserva el total anterior");
+        assert_eq!(
+            d.file_path.as_deref(),
+            Some("/tmp/bueno.typ"),
+            "conserva la ruta anterior"
+        );
+    }
+
+    #[test]
+    fn apply_compiled_clears_loading() {
+        let mut d = Deck::empty();
+        let generation = d.begin_load();
+        assert!(d.loading);
+        let text = "= Hola\n\nTexto de prueba\n".to_string();
+        d.apply_compiled(
+            generation,
+            "/tmp/ok.typ",
+            text,
+            Some(Notes::new()),
+            Ok(compiled("= Hola\n\nTexto de prueba\n")),
+            None,
+        )
+        .expect("aplica el documento");
+        assert!(!d.loading, "el éxito termina la carga");
+
+        let generation = d.begin_load();
+        assert!(d.loading);
+        d.apply_compiled(
+            generation,
+            "/tmp/ko.typ",
+            "= Roto".to_string(),
+            None,
+            Err("Error compilando Typst: roto".to_string()),
+            None,
+        )
+        .expect_err("el error se propaga");
+        assert!(!d.loading, "el error también termina la carga");
+    }
+
+    #[test]
+    fn apply_compiled_error_keeps_cache() {
+        let mut d = Deck::empty();
+        seed_cache(&mut d);
+        let generation = d.begin_load();
+        let r = d.apply_compiled(
+            generation,
+            "/tmp/malo.typ",
+            "= Roto".to_string(),
+            None,
+            Err("boom".to_string()),
+            None,
+        );
+        assert!(r.is_err());
+        assert_eq!(d.cache.len(), 1, "conserva la caché anterior");
+        assert_eq!(d.cache_order.len(), 1, "conserva el orden LRU");
+    }
+
+    #[test]
+    fn apply_compiled_zero_pages() {
+        let mut d = Deck::empty();
+        d.page = 3;
+        d.total = 7;
+        let generation = d.begin_load();
+        let doc = PagedDocument::new(Default::default(), Default::default());
+        let r = d.apply_compiled(
+            generation,
+            "/tmp/vacio.typ",
+            String::new(),
+            Some(Notes::new()),
+            Ok(doc),
+            None,
+        );
+        assert!(r.is_ok());
+        assert_eq!(d.total, 0, "documento sin páginas");
+        assert_eq!(d.page, 0, "vuelve a la primera");
+        assert!(d.doc.is_some(), "el documento vacío se aplica");
+        assert!(!d.has_next(), "sin páginas no hay siguiente");
+        assert_eq!(d.next_index(), None);
+        assert_eq!(d.notes.total_pages, 0);
+    }
+
+    #[test]
+    fn stale_generation_is_ignored() {
+        let mut d = Deck::empty();
+        let old = d.begin_load();
+        let new = d.begin_load();
+        let text = "= Hola\n\nTexto de prueba\n".to_string();
+        let r = d.apply_compiled(
+            old,
+            "/tmp/viejo.typ",
+            text.clone(),
+            Some(Notes::new()),
+            Ok(compiled(&text)),
+            None,
+        );
+        assert!(r.is_ok(), "una generación obsoleta no es un error");
+        assert!(d.doc.is_none(), "no aplica el documento viejo");
+        assert_eq!(d.doc_generation, new, "la generación vigente no cambia");
+        assert!(d.loading, "la carga vigente sigue en curso");
+    }
+
+    #[test]
+    fn insert_cached_ignores_stale_generation() {
+        let mut d = Deck::empty();
+        let old = d.begin_load();
+        let _new = d.begin_load();
+        let evicted = d.insert_cached(old, 0, 1, 1, vec![0, 0, 0, 255]);
+        assert!(evicted.is_empty());
+        assert!(d.cache.is_empty(), "no inserta con generación obsoleta");
+        let evicted = d.insert_cached(d.doc_generation, 0, 1, 1, vec![0, 0, 0, 255]);
+        assert!(evicted.is_empty());
+        assert!(d.cache.contains_key(&0), "inserta con la generación actual");
+    }
+
+    #[test]
+    fn begin_load_sets_loading_and_clears_error() {
+        let mut d = Deck::empty();
+        d.error = Some("previo".to_string());
+        let g1 = d.begin_load();
+        assert!(d.loading, "activa el estado de carga");
+        assert!(d.error.is_none(), "limpia el error previo");
+        let g2 = d.begin_load();
+        assert_eq!(g2, g1 + 1, "cada carga incrementa la generación");
+    }
+
+    #[test]
+    fn open_file_ok_leaves_loading_false() {
+        let path = std::env::temp_dir().join("typshow_deck_ok_test.typ");
+        std::fs::write(&path, "= Hola\n\nTexto de prueba\n").unwrap();
+        let mut d = Deck::empty();
+        let r = d.open_file(path.to_str().unwrap());
+        assert!(r.is_ok(), "error inesperado: {r:?}");
+        assert!(!d.loading, "termina la carga");
+        assert!(d.error.is_none(), "sin error");
+        assert!(d.total >= 1, "debe tener al menos una pagina");
+        let _ = std::fs::remove_file(&path);
+        cleanup_db(&path);
+    }
+
+    #[test]
+    fn open_file_invalid_typst_returns_err() {
+        let path = std::env::temp_dir().join("typshow_deck_invalid_test.typ");
+        std::fs::write(&path, "#let x = \n").unwrap();
+        let mut d = Deck::empty();
+        let r = d.open_file(path.to_str().unwrap());
+        assert!(r.is_err(), "Typst inválido debe devolver Err");
+        assert!(d.error.is_some(), "registra el error");
+        assert!(!d.loading, "termina la carga");
+        assert!(d.doc.is_none(), "no hay documento");
+        let _ = std::fs::remove_file(&path);
+        cleanup_db(&path);
     }
 
     #[test]
