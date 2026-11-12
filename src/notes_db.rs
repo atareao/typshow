@@ -29,11 +29,24 @@ fn parse_typ_title(source: &str) -> Option<String> {
     let mut escaped = false;
     let mut end = 0;
     for (i, ch) in rest.char_indices() {
-        if escaped { escaped = false; continue; }
-        if ch == '\\' { escaped = true; continue; }
-        if ch == '"' { end = i; break; }
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            end = i;
+            break;
+        }
     }
-    if end > 0 { Some(rest[..end].to_string()) } else { None }
+    if end > 0 {
+        Some(rest[..end].to_string())
+    } else {
+        None
+    }
 }
 
 impl NotesDb {
@@ -44,7 +57,10 @@ impl NotesDb {
         let conn = Connection::open(&db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL")?;
 
-        let db = Self { conn, path: db_path };
+        let db = Self {
+            conn,
+            path: db_path,
+        };
         db.init_schema()?;
         Ok(db)
     }
@@ -56,7 +72,7 @@ impl NotesDb {
                 heading     TEXT,
                 content     TEXT NOT NULL DEFAULT '',
                 updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-            );"
+            );",
         )?;
         Ok(())
     }
@@ -66,16 +82,16 @@ impl NotesDb {
     }
 
     pub fn has_data(&self) -> Result<bool, Box<dyn std::error::Error>> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM notes", [], |r| r.get(0)
-        )?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))?;
         Ok(count > 0)
     }
 
     pub fn load(&self, page: usize) -> Result<NoteRecord, Box<dyn std::error::Error>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT page_number, heading, content FROM notes WHERE page_number = ?1"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT page_number, heading, content FROM notes WHERE page_number = ?1")?;
 
         let result = stmt.query_row(params![page as i64], |r| {
             Ok(NoteRecord {
@@ -87,13 +103,11 @@ impl NotesDb {
 
         match result {
             Ok(record) => Ok(record),
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                Ok(NoteRecord {
-                    page_number: page,
-                    heading: None,
-                    content: String::new(),
-                })
-            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(NoteRecord {
+                page_number: page,
+                heading: None,
+                content: String::new(),
+            }),
             Err(e) => Err(Box::new(e)),
         }
     }
@@ -110,7 +124,11 @@ impl NotesDb {
         Ok(())
     }
 
-    pub fn set_heading(&self, page: usize, heading: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn set_heading(
+        &self,
+        page: usize,
+        heading: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.conn.execute(
             "INSERT INTO notes (page_number, heading, updated_at)
              VALUES (?1, ?2, datetime('now'))
@@ -187,7 +205,10 @@ impl NotesDb {
             return Ok(());
         }
 
-        let fixed: Vec<&TypSegment> = segments.iter().filter(|s| s.heading_level >= 1 && s.heading_level <= 2).collect();
+        let fixed: Vec<&TypSegment> = segments
+            .iter()
+            .filter(|s| s.heading_level >= 1 && s.heading_level <= 2)
+            .collect();
         let flex: Vec<&TypSegment> = segments.iter().filter(|s| s.heading_level >= 3).collect();
 
         let mut page = 1;
@@ -258,7 +279,10 @@ fn build_segments(
 
     for i in 0..boundaries.len() {
         let (start, label_opt) = &boundaries[i];
-        let end = boundaries.get(i + 1).map(|(l, _)| *l).unwrap_or(total_lines);
+        let end = boundaries
+            .get(i + 1)
+            .map(|(l, _)| *l)
+            .unwrap_or(total_lines);
 
         let resolved = label_opt.clone().or_else(|| last_label.clone());
         if label_opt.is_some() {
@@ -275,14 +299,24 @@ pub fn parse_typ_headings(source: &str) -> Vec<HeadingInfo> {
     let mut headings = Vec::new();
     for (i, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
-        let level = if trimmed.starts_with("==== ") { 4 }
-        else if trimmed.starts_with("=== ") { 3 }
-        else if trimmed.starts_with("== ") { 2 }
-        else if trimmed.starts_with("= ") { 1 }
-        else { continue };
+        let level = if trimmed.starts_with("==== ") {
+            4
+        } else if trimmed.starts_with("=== ") {
+            3
+        } else if trimmed.starts_with("== ") {
+            2
+        } else if trimmed.starts_with("= ") {
+            1
+        } else {
+            continue;
+        };
 
         let text = trimmed[level..].trim().to_string();
-        headings.push(HeadingInfo { level: level as u32, text, line: i });
+        headings.push(HeadingInfo {
+            level: level as u32,
+            text,
+            line: i,
+        });
     }
     headings
 }
@@ -299,10 +333,8 @@ pub fn extract_typ_segments(source: &str) -> Vec<TypSegment> {
         }
     }
     for (i, line) in lines.iter().enumerate() {
-        if line.trim().starts_with("#pagebreak") {
-            if !boundaries.iter().any(|(l, _, _)| *l == i) {
-                boundaries.push((i, None, 0));
-            }
+        if line.trim().starts_with("#pagebreak") && !boundaries.iter().any(|(l, _, _)| *l == i) {
+            boundaries.push((i, None, 0));
         }
     }
     boundaries.sort_by_key(|(line, _, _)| *line);
@@ -312,7 +344,10 @@ pub fn extract_typ_segments(source: &str) -> Vec<TypSegment> {
 
     for i in 0..boundaries.len() {
         let (start, label_opt, level) = &boundaries[i];
-        let end = boundaries.get(i + 1).map(|(l, _, _)| *l).unwrap_or(total_lines);
+        let end = boundaries
+            .get(i + 1)
+            .map(|(l, _, _)| *l)
+            .unwrap_or(total_lines);
 
         let resolved = label_opt.clone().or_else(|| last_label.clone());
         if label_opt.is_some() {
@@ -574,8 +609,16 @@ More text
     #[test]
     fn test_build_segments_with_headings() {
         let headings = vec![
-            HeadingInfo { level: 1, text: "A".into(), line: 0 },
-            HeadingInfo { level: 1, text: "B".into(), line: 10 },
+            HeadingInfo {
+                level: 1,
+                text: "A".into(),
+                line: 0,
+            },
+            HeadingInfo {
+                level: 1,
+                text: "B".into(),
+                line: 10,
+            },
         ];
         let segs = build_segments(&headings, &[], 30);
         assert_eq!(segs.len(), 2);

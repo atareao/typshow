@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
+use tracing::{error, info};
 use typshow::AppState;
 use typshow::TypshowApp;
-use tracing::{info, error};
 
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
@@ -14,52 +14,59 @@ fn setup_fonts(ctx: &egui::Context) {
     let mut has_cantarell = false;
 
     for face in db.faces() {
-        let families: Vec<String> = face.families.iter().map(|(n, _)| n.to_lowercase()).collect();
+        let families: Vec<String> = face
+            .families
+            .iter()
+            .map(|(n, _)| n.to_lowercase())
+            .collect();
 
         let is_cantarell = families.iter().any(|n| n == "cantarell");
-        if is_cantarell {
-            if let fontdb::Source::File(path) = &face.source {
-                if let Ok(data) = std::fs::read(path) {
-                    let font_name = "cantarell".to_string();
-                    fonts.font_data.insert(
-                        font_name.clone(),
-                        std::sync::Arc::new(egui::FontData::from_owned(data)),
-                    );
-                    fonts
-                        .families
-                        .entry(egui::FontFamily::Proportional)
-                        .or_default()
-                        .insert(0, font_name);
-                    fonts
-                        .families
-                        .entry(egui::FontFamily::Name("GTK".into()))
-                        .or_default()
-                        .insert(0, "cantarell".into());
-                    has_cantarell = true;
-                }
-            }
+        if is_cantarell
+            && let fontdb::Source::File(path) = &face.source
+            && let Ok(data) = std::fs::read(path)
+        {
+            let font_name = "cantarell".to_string();
+            fonts.font_data.insert(
+                font_name.clone(),
+                std::sync::Arc::new(egui::FontData::from_owned(data)),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, font_name);
+            fonts
+                .families
+                .entry(egui::FontFamily::Name("GTK".into()))
+                .or_default()
+                .insert(0, "cantarell".into());
+            has_cantarell = true;
         }
 
         let is_emoji = families.iter().any(|n| n.contains("emoji"));
-        if !is_emoji { continue; }
+        if !is_emoji {
+            continue;
+        }
 
         let is_color = families.iter().any(|n| n.contains("color"));
-        if is_color { continue; }
+        if is_color {
+            continue;
+        }
 
-        if let fontdb::Source::File(path) = &face.source {
-            if let Ok(data) = std::fs::read(path) {
-                let font_name = format!("emoji_{}", face.index);
-                fonts.font_data.insert(
-                    font_name.clone(),
-                    std::sync::Arc::new(egui::FontData::from_owned(data)),
-                );
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Proportional)
-                    .or_default()
-                    .push(font_name);
-                loaded_emoji += 1;
-            }
+        if let fontdb::Source::File(path) = &face.source
+            && let Ok(data) = std::fs::read(path)
+        {
+            let font_name = format!("emoji_{}", face.index);
+            fonts.font_data.insert(
+                font_name.clone(),
+                std::sync::Arc::new(egui::FontData::from_owned(data)),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .push(font_name);
+            loaded_emoji += 1;
         }
     }
 
@@ -68,13 +75,17 @@ fn setup_fonts(ctx: &egui::Context) {
     }
 
     if loaded_emoji == 0 {
-        tracing::warn!("No se encontró una fuente emoji monocromática compatible. \
-                        En Arch Linux: paru -S ttf-noto-emoji-monochrome");
+        tracing::warn!(
+            "No se encontró una fuente emoji monocromática compatible. \
+                        En Arch Linux: paru -S ttf-noto-emoji-monochrome"
+        );
     }
 
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    info!("Phosphor font registrada. Familias Proportional: {:?}",
-        fonts.families.get(&egui::FontFamily::Proportional));
+    info!(
+        "Phosphor font registrada. Familias Proportional: {:?}",
+        fonts.families.get(&egui::FontFamily::Proportional)
+    );
 
     ctx.set_fonts(fonts);
 }
@@ -83,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
 

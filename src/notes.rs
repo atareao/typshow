@@ -1,6 +1,6 @@
+use crate::notes_db::NotesDb;
 use egui::{Color32, RichText, Ui};
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
-use crate::notes_db::NotesDb;
 use tracing::{info, warn};
 
 pub enum MdElement {
@@ -19,12 +19,22 @@ pub struct Notes {
     pub heading: Option<String>,
     pub heading_editing: bool,
     pub heading_edit_buffer: String,
+    /// Cursor (offset en bytes) del editor del título
+    pub heading_cursor: usize,
     pub elements: Vec<MdElement>,
     pub editing: bool,
     pub edit_buffer: String,
+    /// Cursor (offset en bytes) del editor de la nota
+    pub cursor: usize,
     pub dirty: bool,
     pub scroll_ratio: f32,
     pub total_pages: usize,
+}
+
+impl Default for Notes {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Notes {
@@ -36,20 +46,18 @@ impl Notes {
             heading: None,
             heading_editing: false,
             heading_edit_buffer: String::new(),
+            heading_cursor: 0,
             elements: Vec::new(),
             editing: false,
             edit_buffer: String::new(),
+            cursor: 0,
             dirty: false,
             scroll_ratio: 0.0,
             total_pages: 0,
         }
     }
 
-    pub fn with_db(
-        typ_path: &str,
-        typ_content: &str,
-        total_pages: usize,
-    ) -> Self {
+    pub fn with_db(typ_path: &str, typ_content: &str, total_pages: usize) -> Self {
         let mut notes = Self::new();
         notes.total_pages = total_pages;
 
@@ -74,6 +82,7 @@ impl Notes {
         self.editing = false;
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
 
         if let Some(ref db) = self.db {
             match db.load(page) {
@@ -111,6 +120,7 @@ impl Notes {
             };
             self.dirty = false;
             self.editing = false;
+            self.cursor = 0;
             info!("Nota guardada para página {}", self.current_page + 1);
         }
         Ok(())
@@ -120,12 +130,14 @@ impl Notes {
         self.edit_buffer = self.note_content.clone().unwrap_or_default();
         self.editing = true;
         self.dirty = false;
+        self.cursor = self.edit_buffer.len();
     }
 
     pub fn cancel_edit(&mut self) {
         self.edit_buffer.clear();
         self.editing = false;
         self.dirty = false;
+        self.cursor = 0;
     }
 
     pub fn delete_current(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -137,6 +149,7 @@ impl Notes {
             self.edit_buffer.clear();
             self.editing = false;
             self.dirty = false;
+            self.cursor = 0;
         }
         Ok(())
     }
@@ -159,7 +172,11 @@ impl Notes {
         Ok(())
     }
 
-    pub fn reimport(&mut self, typ_content: &str, total_pages: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn reimport(
+        &mut self,
+        typ_content: &str,
+        total_pages: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref db) = self.db {
             db.clear_all()?;
             db.migrate_from_typ(typ_content, total_pages)?;
@@ -180,6 +197,7 @@ impl Notes {
     pub fn start_edit_heading(&mut self) {
         self.heading_edit_buffer = self.heading.clone().unwrap_or_default();
         self.heading_editing = true;
+        self.heading_cursor = self.heading_edit_buffer.len();
     }
 
     pub fn save_heading(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -192,12 +210,14 @@ impl Notes {
         self.heading = new_heading;
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
         Ok(())
     }
 
     pub fn cancel_edit_heading(&mut self) {
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
     }
 
     pub fn update_scroll_target(&mut self, current_page: usize, total_pages: usize) {
@@ -222,8 +242,12 @@ impl Notes {
             match element {
                 MdElement::Heading(level, text) => {
                     let size = match level {
-                        1 => 22.0, 2 => 18.0, 3 => 16.0,
-                        4 => 14.0, 5 => 13.0, _ => 12.0,
+                        1 => 22.0,
+                        2 => 18.0,
+                        3 => 16.0,
+                        4 => 14.0,
+                        5 => 13.0,
+                        _ => 12.0,
                     };
                     ui.add_space(8.0);
                     ui.label(RichText::new(text).size(size).strong());
@@ -276,11 +300,11 @@ impl Notes {
                     elements.push(MdElement::Heading(lvl, String::new()));
                 }
                 Event::End(TagEnd::Heading(_)) => {
-                    if let Some(MdElement::Heading(_, text)) = elements.last_mut() {
-                        if !pending_text.is_empty() {
-                            text.push_str(&pending_text);
-                            pending_text.clear();
-                        }
+                    if let Some(MdElement::Heading(_, text)) = elements.last_mut()
+                        && !pending_text.is_empty()
+                    {
+                        text.push_str(&pending_text);
+                        pending_text.clear();
                     }
                 }
                 Event::Start(Tag::Paragraph) => {
@@ -309,10 +333,10 @@ impl Notes {
                     pending_text.clear();
                 }
                 Event::Start(Tag::Emphasis) => {
-                    pending_text.push_str("*");
+                    pending_text.push('*');
                 }
                 Event::End(TagEnd::Emphasis) => {
-                    pending_text.push_str("*");
+                    pending_text.push('*');
                 }
                 Event::Start(Tag::Strong) => {
                     pending_text.push_str("**");

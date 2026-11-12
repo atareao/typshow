@@ -21,3 +21,24 @@ fontdb = "0.23"
 pulldown-cmark = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
 egui-phosphor = "0.9"
+gpui = { git = "https://github.com/zed-industries/zed", rev = "a1f2e21c2c95c6679945d88996e8324a6cc97e47" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "a1f2e21c2c95c6679945d88996e8324a6cc97e47", features = ["font-kit", "wayland", "x11"] }
+image = "0.25"
+
+
+[[bin]]
+name = "typshow"
+path = "src/main.rs"
+
+[[bin]]
+name = "typshow-gpui"
+path = "src/bin/typshow_gpui.rs"
+
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "a1f2e21c2c95c6679945d88996e8324a6cc97e47", features = ["test-support"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
