@@ -4,7 +4,7 @@
 - **Tipo:** Migración de framework de UI (por fases)
 - **Change OpenSpec:** `openspec/changes/migracion-gpui/`
 - **Branch:** `feature/gpui-migration`
-- **Estado:** EN CURSO (Fases 1 y 3 completadas; 4.4 documentada. Pendiente: editor con IME/acentos, fases 5-7)
+- **Estado:** EN CURSO (Fases 1 y 3 completadas; M3 completado — render asíncrono, apertura asíncrona y `rfd` no bloqueante; 4.4 documentada. Pendiente: M4 resto — `EntityInputHandler`/IME, 2.2 desacoplar `Notes` de egui, fases 5-7)
 - **Precedente:** spike `gpui-spike` (PR #13); veredicto de viabilidad en `docs/gpui-spike.md`
 
 ## Objetivo

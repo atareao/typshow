@@ -12,6 +12,7 @@
 - [ ] 2.2 Reutilizar `AppState` (navegación), `Notes` y `NotesDb` sin dependencias de egui; verificar `cargo test`
 - [x] 2.3 Manejar errores de carga/compilación mostrando un mensaje; verificar con un `.typ` inválido
 - [x] 2.4 Rasterizar las páginas fuera del hilo de UI (tarea en segundo plano) y acotar la caché a una LRU (`CACHE_CAP`) liberando la textura al desalojar; verificar con tests y en ejecución
+- [x] 2.5 Compilar Typst en segundo plano al abrir un `.typ` desde la UI (`open_file_async`), mostrando estado de carga y aplicando el resultado en el hilo de UI; verificar con tests
 
 ## 3. Ventana de presentador
 
@@ -24,6 +25,11 @@
 - [x] 3.8 Editar el título (heading) de la nota desde el panel
 - [x] 3.7 Implementar atajos de teclado y navegación por clic; verificar
 - [x] 3.9 Editor de notas con cursor: inserción en la posición del cursor, flechas/Home/End, Backspace/Delete y pegar (Ctrl+V); verificar con tests
+- [x] 3.10 Abrir el diálogo de fichero (`rfd`) sin bloquear el hilo de UI; verificar que la ventana sigue respondiendo (verificación manual del diálogo)
+- [x] 3.11 Modelo de edición puro `TextEdit` (cursor, selección con dirección, rango marcado de IME, mapa byte↔UTF-16) con tests
+- [x] 3.12 `EntityInputHandler` en la ventana de presentador para notas y título: selección con Shift+flechas y ratón, resaltado, pre-edit de IME y portapapeles
+  - [x] (a) handler, (b) render, (c) ratón, (e) teclado y (f) tests — hechos y auditados
+  - [x] (d) portapapeles: copiar (Ctrl+C) y cortar (Ctrl+X) en nota y título, con pegado (Ctrl+V)
 
 ## 4. Ventana de audiencia
 

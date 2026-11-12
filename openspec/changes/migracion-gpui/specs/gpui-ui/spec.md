@@ -102,6 +102,65 @@ actual, con persistencia en la base de datos.
 - **WHEN** el usuario pulsa "Reimportar"
 - **THEN** las notas se reconstruyen a partir del documento Typst
 
+### Requirement: Edición de texto con selección e IME
+Los editores de texto de la ventana de presentador (cuerpo de la nota y título) SHALL
+mantener cursor, selección con dirección y rango marcado de composición IME, SHALL
+intercambiar rangos con GPUI en UTF-16 (`EntityInputHandler`) y SHALL permitir copiar y
+cortar la selección al portapapeles.
+
+#### Scenario: Selección con teclado
+- **GIVEN** un editor con foco y el cursor situado en una posición
+- **WHEN** el usuario mantiene Shift y pulsa las flechas izquierda/derecha
+- **THEN** la selección se extiende carácter a carácter desde el ancla, el cursor queda en
+  el extremo opuesto y el resaltado refleja la dirección de la selección
+
+#### Scenario: Selección con ratón
+- **GIVEN** un editor con texto
+- **WHEN** el usuario hace clic o arrastra el ratón, con o sin Shift
+- **THEN** sin arrastre el cursor salta al punto pulsado (con Shift extiende la selección) y
+  con arrastre se selecciona el rango entre el ancla y la posición actual
+
+#### Scenario: Borrar o insertar sobre una selección
+- **GIVEN** un editor con un rango seleccionado no vacío
+- **WHEN** el usuario escribe, pega, pulsa Backspace o pulsa Delete
+- **THEN** el texto seleccionado se sustituye por lo insertado (o se elimina si no se inserta
+  nada) y el cursor queda al final del texto insertado
+
+#### Scenario: Seleccionar todo
+- **WHEN** el usuario pulsa el atajo de "seleccionar todo" (Ctrl+A / Cmd+A)
+- **THEN** la selección cubre todo el texto y el cursor queda al final
+
+#### Scenario: Copiar y cortar al portapapeles
+- **GIVEN** un editor con foco y un rango seleccionado no vacío
+- **WHEN** el usuario pulsa el atajo de copiar (Ctrl+C / Cmd+C) o el de cortar (Ctrl+X / Cmd+X)
+- **THEN** la selección se escribe en el portapapeles y, solo al cortar, se borra del texto; en el
+  cuerpo de la nota ese cambio la marca como sucia, mientras que en el título el texto se persiste
+  al pulsar Enter
+
+#### Scenario: Copiar sin selección
+- **GIVEN** un editor con foco y la selección colapsada
+- **WHEN** el usuario pulsa el atajo de copiar
+- **THEN** el evento se consume sin escribir el portapapeles ni modificar el documento
+
+#### Scenario: Composición IME en curso
+- **GIVEN** el usuario está componiendo texto con un método de entrada (IME)
+- **WHEN** el IME entrega texto marcado (`replace_and_mark_text_in_range`)
+- **THEN** el texto provisional se inserta y se muestra subrayado como rango marcado, y la
+  selección provisional del IME se respeta acotada a la longitud del texto insertado
+
+#### Scenario: Confirmación de la composición IME
+- **GIVEN** un editor con un rango marcado activo
+- **WHEN** el IME confirma o cancela la composición
+- **THEN** al confirmar desaparece el rango marcado y el texto queda como definitivo; al
+  cancelar el texto provisional se sustituye por lo que indique el IME (`unmark_text`)
+
+#### Scenario: Mapeo UTF-16 con acentos y emoji
+- **GIVEN** un texto con caracteres fuera del BMP o acentuados (p. ej. `café`, `A🙂Z`)
+- **WHEN** GPUI consulta la longitud, un rango o la posición del cursor en unidades UTF-16 y
+  luego los devuelve
+- **THEN** la conversión byte↔UTF-16 es exacta y los viajes de ida y vuelta preservan los
+  offsets originales en frontera de carácter
+
 ### Requirement: Tema claro/oscuro estilo Adwaita
 La app SHALL ofrecer un tema claro y uno oscuro con estética GTK4/Adwaita.
 

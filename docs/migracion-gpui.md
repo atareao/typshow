@@ -18,7 +18,8 @@ Cuando la paridad funcional esté completa, el binario GPUI pasará a llamarse
 |---|---|
 | `src/gpui_ui/mod.rs` | Módulo raíz de la UI GPUI. |
 | `src/gpui_ui/deck.rs` | Estado compartido (`Deck`): navegación, tema, fichero, notas y caché de páginas renderizadas. |
-| `src/gpui_ui/keys.rs` | Manejo de teclado (navegación vim + edición de notas/título) vía `on_key_down`. |
+| `src/gpui_ui/keys.rs` | Teclado vía `on_key_down`: navegación (`apply_nav`) y helpers de frontera de carácter. El antiguo editor del M3 (`apply_edit`/`display_with_caret`) queda como código legacy sin cablear. |
+| `src/gpui_ui/edit.rs` | Modelo de edición puro `TextEdit`: cursor, selección con dirección, rango marcado de IME y mapa byte↔UTF-16. |
 | `src/gpui_ui/presenter.rs` | Ventana del presentador: paneles *Actual*/*Siguiente*, toolbar, notas y gestión de la ventana de audiencia. |
 | `src/gpui_ui/audience.rs` | Ventana de audiencia (pantalla completa). |
 | `src/gpui_ui/theme.rs` | Paleta claro/oscuro. |
@@ -46,13 +47,63 @@ pipeline Typst→`RenderImage`.
 - **Caché acotada (LRU):** como máximo `CACHE_CAP` (6) páginas en memoria; al
   desalojar se libera también la textura GPU con `cx.drop_image`. La decisión de
   desalojo (`eviction_candidate`) es una función pura cubierta por tests.
-- **Editor de notas/título:** mantiene un cursor (offset en bytes). Durante la
-  edición: `←`/`→` mueven el cursor, `Home`/`End` van a inicio/fin, `Backspace`/
-  `Delete` borran, `Enter` inserta salto (o guarda el título), `Esc` cancela y
-  `Ctrl+V` pega el portapapeles en el cursor. Los caracteres se insertan en la
-  posición del cursor y se muestra un marcador `|`. La lógica de cursor y edición
-  son funciones puras en `keys.rs` (`prev_boundary`, `insert_at`, `backspace_at`,
-  `delete_at`, `display_with_caret`), cubiertas por tests.
+- **Editor de notas/título (M4):** `PresenterView` implementa
+  `gpui::EntityInputHandler` sobre un modelo de edición puro (`TextEdit`, en
+  `src/gpui_ui/edit.rs`): cursor y selección **con dirección** (ancla + extremo
+  activo), rango marcado de composición IME y mapa byte↔UTF-16 (todos los rangos
+  que se cruzan con GPUI van en UTF-16). Con la edición activa: `←`/`→`/`Home`/
+  `End` mueven el cursor, `Shift+flechas` extienden la selección, el ratón coloca
+  el cursor o arrastra para seleccionar (con `Shift` extiende en vez de
+  recolocar), `Backspace`/`Delete` borran la selección si la hay y si no el
+  carácter contiguo, `Enter` inserta un salto en la nota o guarda el título
+  (`save_heading`) y `Esc` cancela sin guardar. El portapapeles está completo:
+  `Ctrl+C` copia la selección, `Ctrl+X` la copia y la borra y `Ctrl+V` la pega
+  (sin selección, copiar/cortar son no-op); en el título el pegado se aplana a una
+  sola línea. La selección se resalta y el cursor (`|`) se pinta solo cuando la
+  selección está colapsada, todo desde `editor_frame`/`EditorLayout`. Escribir en
+  el **cuerpo** de la nota marca `dirty` (autoguardado); el **título** nunca marca
+  `dirty` porque se persiste al pulsar `Enter`. Los caracteres imprimibles no los
+  inserta el handler de teclas: los entrega la plataforma vía
+  `replace_text_in_range` con el `key_char`.
+
+  > Nota (M4): de `src/gpui_ui/keys.rs` solo siguen cableados `apply_nav`
+  > (navegación de páginas, presentador y audiencia) y los helpers de frontera de
+  > carácter (`prev_boundary`/`next_boundary`/`clamp_boundary`, que usa
+  > `TextEdit`). El editor del M3 (`apply_edit`, `insert_at`, `backspace_at`,
+  > `delete_at`, `display_with_caret`) es **código legacy ya sin cablear**
+  > (ningún llamador fuera del propio módulo) y es candidato a borrarse al cerrar
+  > M4; de momento se conserva.
+
+## Carga asíncrona de documentos (M3)
+
+Abrir un `.typ` desde la UI no bloquea el hilo de UI:
+
+- **`Deck::open_file_async`** marca `loading`, limpia el error previo y lanza en
+  `cx.background_spawn` la lectura del fichero, la compilación Typst y la
+  apertura de la base de datos de notas (`Notes::with_db`, SQLite + migración).
+  Al terminar aplica el resultado en el hilo de UI con `apply_compiled` y
+  notifica. `compile_typst` va envuelto en `catch_unwind`, así que un pánico del
+  compilador se convierte en `Err("Error interno compilando Typst")` y `loading`
+  nunca queda colgado.
+- **`doc_generation`** es un contador que se incrementa en cada carga
+  (`begin_load`). Cada compilación y cada rasterización captura su generación y
+  descarta su resultado si ya no es la vigente: gana la **última apertura
+  pedida**, no la que termine más tarde, y las páginas del documento viejo no
+  contaminan el nuevo.
+- **`image_at` devuelve `None` mientras `loading`**: el documento anterior está a
+  punto de ser reemplazado, así que rasterizarlo sería trabajo tirado. La UI
+  muestra «Compilando…» en presenter y audiencia. El guard de generación cubre
+  además la carrera de un render ya lanzado antes de empezar la carga.
+- **`rfd::AsyncFileDialog`**: el diálogo se espera dentro de
+  `cx.background_spawn` (sin hilo ni canal propios). El flag `dialog_open` evita
+  reentradas y deshabilita visualmente el botón «Abrir» mientras hay un diálogo
+  abierto o una compilación en curso.
+
+**Limitación residual:** la ruta síncrona de arranque (`Deck::open_file`, usada
+por el CLI) llama a `clear_cache(None)`, que vacía la caché sin liberar texturas
+porque no tiene `Context`. Solo es segura con la caché vacía, que es el caso al
+arrancar; si se reutilizara en caliente habría que pasarle un `Context` para
+hacer `cx.drop_image`.
 
 ## Ventanas y `app_id`
 
@@ -89,14 +140,10 @@ El nombre de la salida se obtiene con `niri msg outputs` (p. ej. `HDMI-A-1`,
 
 ## Pendiente / follow-ups
 
-- **Compilación Typst asíncrona:** abrir un `.typ` sigue compilando en el hilo de
-  UI (`open_file`); conviene moverlo a segundo plano como la rasterización.
-- **Abrir fichero asíncrono:** `rfd::FileDialog::pick_file` es bloqueante.
-
-- Editor de notas con `EntityInputHandler` para selección con ratón/teclado,
-  resaltado de selección y *pre-edit* de IME (los acentos ya funcionan: GPUI
-  compone las teclas muertas y entrega `key_char`).
-- `rfd` asíncrono y compilación Typst fuera del hilo de UI.
+- ~~Editor de notas con `EntityInputHandler` para selección con ratón/teclado,
+  resaltado de selección y *pre-edit* de IME~~ ✅ hecho en M4 (ver «Cómo funciona»).
+- Borrar el código legacy del editor en `src/gpui_ui/keys.rs` (`apply_edit`,
+  `insert_at`, `backspace_at`, `delete_at`, `display_with_caret`) al cerrar M4.
 - Límite de tamaño de la caché de páginas (`window.drop_image`).
 - Tema Adwaita/GTK4 e iconos (fase 5).
 - Retirada de `egui` (fase 6) y cierre (fase 7).
