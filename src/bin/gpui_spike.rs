@@ -339,7 +339,7 @@ impl Render for AudienceView {
 /// a BGRA no premultiplicado (formato interno de `RenderImage`).
 /// Equivale a `gpui::swap_rgba_pa_to_bgra`: intercambia R/B y divide por alpha.
 fn rgba_to_bgra(data: &mut [u8]) {
-    for chunk in data.chunks_exact_mut(4) {
+    for chunk in data.as_chunks_mut::<4>().0 {
         chunk.swap(0, 2);
         if chunk[3] > 0 {
             let a = chunk[3] as f32 / 255.0;
