@@ -8,6 +8,7 @@ Migrar la UI de Typshow de `egui`/`eframe` a `GPUI` (issue #12) por fases. **3.1
 - Hecho: borrado del editor legacy sin cablear de `src/gpui_ui/keys.rs` (se conservan `apply_nav` y helpers de frontera).
 - Hecho: `tasks.md` 3.12 `[x]`, delta de spec y `docs/migracion-gpui.md` actualizados.
 - Commits en `feature/gpui-migration` (pusheados a origin): `0216c2e` (editor M4 + 2.5 + test-support), `98c38e7` (borra legacy keys.rs), `0088352` (docs/spec/tasks/handoff). HEAD anterior era `bd34f21`.
+- Hecho: perfil dev optimizado en `Cargo.toml` (`[profile.dev.package."*"] opt-level = 3`): el render de página en debug baja de ~0.7-0.9 s a ~20 ms (commit `6a6ff7f`).
 - Working tree: limpio.
 - PR **#14** (`feature/gpui-migration` → `development`): **OPEN en borrador**, título y body actualizados. URL: https://github.com/atareao/typshow/pull/14
 
@@ -39,3 +40,4 @@ SDD (OpenSpec) + TDD (RED→GREEN→REFACTOR con `cargo test`/`cargo fmt --check
 - `write_back` de `Heading` nunca marca `dirty` (persiste con `save_heading` en Enter) — intencional; el scenario del spec está acotado al cuerpo.
 - El subagente `rust-writer` falló esta sesión (terminaba sin cambios ni respuesta); se usó `backend-dev`.
 - Prerequisito de build: dev-dependency `gpui` (feature `test-support`); GPUI es git-dependency rev `a1f2e21`.
+- Rendimiento: el cuello de botella era el build de *debug* (render ~35-44x más lento). Con el perfil dev optimizado ya va fino; para el binario definitivo usar `cargo build --release`. Si aún se percibe latencia en el panel *Siguiente*, considerar prefetch de la página +2.
