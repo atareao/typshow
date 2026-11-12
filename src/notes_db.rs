@@ -333,10 +333,8 @@ pub fn extract_typ_segments(source: &str) -> Vec<TypSegment> {
         }
     }
     for (i, line) in lines.iter().enumerate() {
-        if line.trim().starts_with("#pagebreak") {
-            if !boundaries.iter().any(|(l, _, _)| *l == i) {
-                boundaries.push((i, None, 0));
-            }
+        if line.trim().starts_with("#pagebreak") && !boundaries.iter().any(|(l, _, _)| *l == i) {
+            boundaries.push((i, None, 0));
         }
     }
     boundaries.sort_by_key(|(line, _, _)| *line);

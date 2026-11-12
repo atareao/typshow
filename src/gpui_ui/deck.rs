@@ -311,9 +311,7 @@ impl Deck {
             self.touch(idx);
             return Some(image);
         }
-        let Some(doc) = self.doc.clone() else {
-            return None;
-        };
+        let doc = self.doc.clone()?;
         if idx >= doc.pages().len() {
             return None;
         }
@@ -846,7 +844,7 @@ mod tests {
 
     #[test]
     fn cache_cap_is_positive() {
-        assert!(CACHE_CAP >= 2, "debe caber al menos actual + siguiente");
+        const { assert!(CACHE_CAP >= 2, "debe caber al menos actual + siguiente") };
     }
 
     #[test]

@@ -72,8 +72,8 @@ pub fn apply_gtk4_style(ctx: &Context, dark_mode: bool) {
     visuals.widgets.noninteractive = WidgetVisuals {
         bg_fill: view_bg(dark),
         weak_bg_fill: Color32::TRANSPARENT,
-        bg_stroke: Stroke::new(1.0, border_color(dark)),
-        fg_stroke: Stroke::new(1.0, text_color(dark)),
+        bg_stroke: Stroke::new(1.0_f32, border_color(dark)),
+        fg_stroke: Stroke::new(1.0_f32, text_color(dark)),
         corner_radius: CORNER,
         expansion: 0.0,
     };
@@ -82,7 +82,7 @@ pub fn apply_gtk4_style(ctx: &Context, dark_mode: bool) {
         bg_fill: Color32::TRANSPARENT,
         weak_bg_fill: Color32::TRANSPARENT,
         bg_stroke: Stroke::NONE,
-        fg_stroke: Stroke::new(1.0, text_color(dark)),
+        fg_stroke: Stroke::new(1.0_f32, text_color(dark)),
         corner_radius: CORNER,
         expansion: 0.0,
     };
@@ -97,7 +97,7 @@ pub fn apply_gtk4_style(ctx: &Context, dark_mode: bool) {
         bg_fill: hover_fill,
         weak_bg_fill: Color32::TRANSPARENT,
         bg_stroke: Stroke::NONE,
-        fg_stroke: Stroke::new(1.0, ACCENT),
+        fg_stroke: Stroke::new(1.0_f32, ACCENT),
         corner_radius: CORNER,
         expansion: 0.0,
     };
@@ -106,7 +106,7 @@ pub fn apply_gtk4_style(ctx: &Context, dark_mode: bool) {
         bg_fill: ACCENT,
         weak_bg_fill: Color32::TRANSPARENT,
         bg_stroke: Stroke::NONE,
-        fg_stroke: Stroke::new(1.0, Color32::WHITE),
+        fg_stroke: Stroke::new(1.0_f32, Color32::WHITE),
         corner_radius: CORNER,
         expansion: 0.0,
     };
@@ -118,8 +118,8 @@ pub fn apply_gtk4_style(ctx: &Context, dark_mode: bool) {
             Color32::from_rgb(230, 230, 230)
         },
         weak_bg_fill: Color32::TRANSPARENT,
-        bg_stroke: Stroke::new(1.0, border_color(dark)),
-        fg_stroke: Stroke::new(1.0, text_color(dark)),
+        bg_stroke: Stroke::new(1.0_f32, border_color(dark)),
+        fg_stroke: Stroke::new(1.0_f32, text_color(dark)),
         corner_radius: CORNER,
         expansion: 0.0,
     };

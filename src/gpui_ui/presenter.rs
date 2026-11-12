@@ -2911,7 +2911,7 @@ mod input_handler_tests {
             assert_eq!(edit.selection, 2..3, "Shift+← extiende un carácter");
             assert!(edit.reversed, "el ancla se mantiene en el extremo opuesto");
             assert!(
-                view.deck.read(cx).notes.dirty == false,
+                !view.deck.read(cx).notes.dirty,
                 "seleccionar no marca la nota como sucia"
             );
         });

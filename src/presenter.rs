@@ -115,11 +115,7 @@ impl TypshowApp {
             } else {
                 icons::NOTE_BLANK
             };
-            let notes_label = if self.notes_visible {
-                format!("{} Notas", notes_icon)
-            } else {
-                format!("{} Notas", notes_icon)
-            };
+            let notes_label = format!("{} Notas", notes_icon);
             if ui.button(notes_label).clicked() {
                 self.notes_visible = !self.notes_visible;
                 ui.ctx().request_repaint();
@@ -538,11 +534,11 @@ impl App for TypshowApp {
                 thread::spawn(|| {
                     thread::sleep(std::time::Duration::from_millis(150));
                     let _ = std::process::Command::new("niri")
-                        .args(&["msg", "action", "move-column-to-monitor-next"])
+                        .args(["msg", "action", "move-column-to-monitor-next"])
                         .status();
                     thread::sleep(std::time::Duration::from_millis(50));
                     let _ = std::process::Command::new("niri")
-                        .args(&["msg", "action", "focus-monitor-previous"])
+                        .args(["msg", "action", "focus-monitor-previous"])
                         .status();
                 });
             }

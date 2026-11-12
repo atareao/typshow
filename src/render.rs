@@ -57,14 +57,12 @@ fn get_system_fonts() -> &'static (LazyHash<FontBook>, Vec<Font>) {
                 let lower = family.to_lowercase();
                 targets.iter().any(|t| lower.contains(t))
             });
-            if matches {
-                if let fontdb::Source::File(path) = &face.source {
-                    if let Ok(data) = std::fs::read(path) {
-                        if let Some(font) = Font::new(Bytes::new(data), face.index) {
-                            fonts.push(font);
-                        }
-                    }
-                }
+            if matches
+                && let fontdb::Source::File(path) = &face.source
+                && let Ok(data) = std::fs::read(path)
+                && let Some(font) = Font::new(Bytes::new(data), face.index)
+            {
+                fonts.push(font);
             }
         }
 
@@ -217,6 +215,12 @@ pub struct Renderer {
     target_width: f64,
 }
 
+impl Default for Renderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Renderer {
     pub fn new() -> Self {
         Self {
@@ -270,7 +274,7 @@ impl Renderer {
         };
 
         let options = typst_render::RenderOptions {
-            pixel_per_pt: Scalar::new(pixel_per_pt as f64),
+            pixel_per_pt: Scalar::new(pixel_per_pt),
             render_bleed: false,
         };
 

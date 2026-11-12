@@ -31,6 +31,12 @@ pub struct Notes {
     pub total_pages: usize,
 }
 
+impl Default for Notes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Notes {
     pub fn new() -> Self {
         Self {
@@ -294,11 +300,11 @@ impl Notes {
                     elements.push(MdElement::Heading(lvl, String::new()));
                 }
                 Event::End(TagEnd::Heading(_)) => {
-                    if let Some(MdElement::Heading(_, text)) = elements.last_mut() {
-                        if !pending_text.is_empty() {
-                            text.push_str(&pending_text);
-                            pending_text.clear();
-                        }
+                    if let Some(MdElement::Heading(_, text)) = elements.last_mut()
+                        && !pending_text.is_empty()
+                    {
+                        text.push_str(&pending_text);
+                        pending_text.clear();
                     }
                 }
                 Event::Start(Tag::Paragraph) => {
@@ -327,10 +333,10 @@ impl Notes {
                     pending_text.clear();
                 }
                 Event::Start(Tag::Emphasis) => {
-                    pending_text.push_str("*");
+                    pending_text.push('*');
                 }
                 Event::End(TagEnd::Emphasis) => {
-                    pending_text.push_str("*");
+                    pending_text.push('*');
                 }
                 Event::Start(Tag::Strong) => {
                     pending_text.push_str("**");

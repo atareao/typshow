@@ -21,27 +21,26 @@ fn setup_fonts(ctx: &egui::Context) {
             .collect();
 
         let is_cantarell = families.iter().any(|n| n == "cantarell");
-        if is_cantarell {
-            if let fontdb::Source::File(path) = &face.source {
-                if let Ok(data) = std::fs::read(path) {
-                    let font_name = "cantarell".to_string();
-                    fonts.font_data.insert(
-                        font_name.clone(),
-                        std::sync::Arc::new(egui::FontData::from_owned(data)),
-                    );
-                    fonts
-                        .families
-                        .entry(egui::FontFamily::Proportional)
-                        .or_default()
-                        .insert(0, font_name);
-                    fonts
-                        .families
-                        .entry(egui::FontFamily::Name("GTK".into()))
-                        .or_default()
-                        .insert(0, "cantarell".into());
-                    has_cantarell = true;
-                }
-            }
+        if is_cantarell
+            && let fontdb::Source::File(path) = &face.source
+            && let Ok(data) = std::fs::read(path)
+        {
+            let font_name = "cantarell".to_string();
+            fonts.font_data.insert(
+                font_name.clone(),
+                std::sync::Arc::new(egui::FontData::from_owned(data)),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, font_name);
+            fonts
+                .families
+                .entry(egui::FontFamily::Name("GTK".into()))
+                .or_default()
+                .insert(0, "cantarell".into());
+            has_cantarell = true;
         }
 
         let is_emoji = families.iter().any(|n| n.contains("emoji"));
@@ -54,20 +53,20 @@ fn setup_fonts(ctx: &egui::Context) {
             continue;
         }
 
-        if let fontdb::Source::File(path) = &face.source {
-            if let Ok(data) = std::fs::read(path) {
-                let font_name = format!("emoji_{}", face.index);
-                fonts.font_data.insert(
-                    font_name.clone(),
-                    std::sync::Arc::new(egui::FontData::from_owned(data)),
-                );
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Proportional)
-                    .or_default()
-                    .push(font_name);
-                loaded_emoji += 1;
-            }
+        if let fontdb::Source::File(path) = &face.source
+            && let Ok(data) = std::fs::read(path)
+        {
+            let font_name = format!("emoji_{}", face.index);
+            fonts.font_data.insert(
+                font_name.clone(),
+                std::sync::Arc::new(egui::FontData::from_owned(data)),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .push(font_name);
+            loaded_emoji += 1;
         }
     }
 
