@@ -1,6 +1,5 @@
-use egui::{Color32, RichText, Ui};
-use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
 use crate::notes_db::NotesDb;
+use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
 use tracing::{info, warn};
 
 pub enum MdElement {
@@ -19,12 +18,22 @@ pub struct Notes {
     pub heading: Option<String>,
     pub heading_editing: bool,
     pub heading_edit_buffer: String,
+    /// Cursor (offset en bytes) del editor del título
+    pub heading_cursor: usize,
     pub elements: Vec<MdElement>,
     pub editing: bool,
     pub edit_buffer: String,
+    /// Cursor (offset en bytes) del editor de la nota
+    pub cursor: usize,
     pub dirty: bool,
     pub scroll_ratio: f32,
     pub total_pages: usize,
+}
+
+impl Default for Notes {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Notes {
@@ -36,20 +45,18 @@ impl Notes {
             heading: None,
             heading_editing: false,
             heading_edit_buffer: String::new(),
+            heading_cursor: 0,
             elements: Vec::new(),
             editing: false,
             edit_buffer: String::new(),
+            cursor: 0,
             dirty: false,
             scroll_ratio: 0.0,
             total_pages: 0,
         }
     }
 
-    pub fn with_db(
-        typ_path: &str,
-        typ_content: &str,
-        total_pages: usize,
-    ) -> Self {
+    pub fn with_db(typ_path: &str, typ_content: &str, total_pages: usize) -> Self {
         let mut notes = Self::new();
         notes.total_pages = total_pages;
 
@@ -74,6 +81,7 @@ impl Notes {
         self.editing = false;
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
 
         if let Some(ref db) = self.db {
             match db.load(page) {
@@ -111,6 +119,7 @@ impl Notes {
             };
             self.dirty = false;
             self.editing = false;
+            self.cursor = 0;
             info!("Nota guardada para página {}", self.current_page + 1);
         }
         Ok(())
@@ -120,12 +129,14 @@ impl Notes {
         self.edit_buffer = self.note_content.clone().unwrap_or_default();
         self.editing = true;
         self.dirty = false;
+        self.cursor = self.edit_buffer.len();
     }
 
     pub fn cancel_edit(&mut self) {
         self.edit_buffer.clear();
         self.editing = false;
         self.dirty = false;
+        self.cursor = 0;
     }
 
     pub fn delete_current(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -137,6 +148,7 @@ impl Notes {
             self.edit_buffer.clear();
             self.editing = false;
             self.dirty = false;
+            self.cursor = 0;
         }
         Ok(())
     }
@@ -159,7 +171,11 @@ impl Notes {
         Ok(())
     }
 
-    pub fn reimport(&mut self, typ_content: &str, total_pages: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn reimport(
+        &mut self,
+        typ_content: &str,
+        total_pages: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref db) = self.db {
             db.clear_all()?;
             db.migrate_from_typ(typ_content, total_pages)?;
@@ -180,6 +196,7 @@ impl Notes {
     pub fn start_edit_heading(&mut self) {
         self.heading_edit_buffer = self.heading.clone().unwrap_or_default();
         self.heading_editing = true;
+        self.heading_cursor = self.heading_edit_buffer.len();
     }
 
     pub fn save_heading(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -192,12 +209,14 @@ impl Notes {
         self.heading = new_heading;
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
         Ok(())
     }
 
     pub fn cancel_edit_heading(&mut self) {
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
+        self.heading_cursor = 0;
     }
 
     pub fn update_scroll_target(&mut self, current_page: usize, total_pages: usize) {
@@ -210,51 +229,6 @@ impl Notes {
 
     pub fn has_content(&self) -> bool {
         self.db.is_some()
-    }
-
-    pub fn draw(&self, ui: &mut Ui) {
-        if self.elements.is_empty() {
-            ui.colored_label(Color32::GRAY, "Las notas están vacías");
-            return;
-        }
-
-        for element in &self.elements {
-            match element {
-                MdElement::Heading(level, text) => {
-                    let size = match level {
-                        1 => 22.0, 2 => 18.0, 3 => 16.0,
-                        4 => 14.0, 5 => 13.0, _ => 12.0,
-                    };
-                    ui.add_space(8.0);
-                    ui.label(RichText::new(text).size(size).strong());
-                    ui.add_space(4.0);
-                }
-                MdElement::Paragraph(text) => {
-                    ui.label(Self::format_inline(text));
-                    ui.add_space(4.0);
-                }
-                MdElement::ListItem(text) => {
-                    ui.label(format!("  •  {}", Self::format_inline(text).text()));
-                    ui.add_space(2.0);
-                }
-                MdElement::CodeBlock(code) => {
-                    egui::Frame::NONE
-                        .fill(ui.style().visuals.extreme_bg_color)
-                        .inner_margin(egui::Margin::symmetric(6, 4))
-                        .show(ui, |ui| {
-                            ui.monospace(code);
-                        });
-                    ui.add_space(4.0);
-                }
-                MdElement::HorizontalRule => {
-                    ui.separator();
-                    ui.add_space(4.0);
-                }
-                MdElement::EmptyLine => {
-                    ui.add_space(8.0);
-                }
-            }
-        }
     }
 
     fn parse_md(source: &str) -> Vec<MdElement> {
@@ -276,11 +250,11 @@ impl Notes {
                     elements.push(MdElement::Heading(lvl, String::new()));
                 }
                 Event::End(TagEnd::Heading(_)) => {
-                    if let Some(MdElement::Heading(_, text)) = elements.last_mut() {
-                        if !pending_text.is_empty() {
-                            text.push_str(&pending_text);
-                            pending_text.clear();
-                        }
+                    if let Some(MdElement::Heading(_, text)) = elements.last_mut()
+                        && !pending_text.is_empty()
+                    {
+                        text.push_str(&pending_text);
+                        pending_text.clear();
                     }
                 }
                 Event::Start(Tag::Paragraph) => {
@@ -309,10 +283,10 @@ impl Notes {
                     pending_text.clear();
                 }
                 Event::Start(Tag::Emphasis) => {
-                    pending_text.push_str("*");
+                    pending_text.push('*');
                 }
                 Event::End(TagEnd::Emphasis) => {
-                    pending_text.push_str("*");
+                    pending_text.push('*');
                 }
                 Event::Start(Tag::Strong) => {
                     pending_text.push_str("**");
@@ -341,20 +315,6 @@ impl Notes {
         }
 
         elements
-    }
-
-    fn format_inline(text: &str) -> RichText {
-        let has_bold = text.contains("**");
-        let has_code = text.contains('`');
-        let clean = text.replace("**", "").replace("`", "");
-        let mut rt = RichText::new(clean);
-        if has_bold {
-            rt = rt.strong();
-        }
-        if has_code {
-            rt = rt.code();
-        }
-        rt
     }
 }
 
@@ -429,32 +389,6 @@ mod tests {
     fn test_parse_md_horizontal_rule() {
         let e = Notes::parse_md("Before\n\n---\n\nAfter");
         assert!(e.iter().any(|el| matches!(el, MdElement::HorizontalRule)));
-    }
-
-    #[test]
-    fn test_format_inline_plain() {
-        let rt = Notes::format_inline("hello world");
-        assert_eq!(rt.text(), "hello world");
-    }
-
-    #[test]
-    fn test_format_inline_bold() {
-        let rt = Notes::format_inline("**bold text**");
-        assert!(!rt.text().contains("**"));
-        assert!(rt.text().contains("bold text"));
-    }
-
-    #[test]
-    fn test_format_inline_code() {
-        let rt = Notes::format_inline("use `fn()` here");
-        assert!(rt.text().contains("fn()"));
-        assert!(!rt.text().contains("`"));
-    }
-
-    #[test]
-    fn test_format_inline_bold_and_code() {
-        let rt = Notes::format_inline("**`x`**");
-        assert_eq!(rt.text(), "x");
     }
 
     #[test]
