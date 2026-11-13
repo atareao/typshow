@@ -4,12 +4,13 @@ use std::borrow::Cow;
 use std::ops::Range;
 
 use gpui::{
-    App, AppContext, Bounds, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, GlobalElementId, Hsla, InspectorElementId, InteractiveElement,
-    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
-    PaintQuad, Pixels, Point, Render, ShapedLine, SharedString, Style, Subscription, TextAlign,
-    TextRun, UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowHandle, WindowOptions,
-    div, fill, img, point, prelude::*, px, relative, size,
+    AnyElement, App, AppContext, Bounds, Context, CursorStyle, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontWeight, GlobalElementId,
+    HighlightStyle, Hsla, InspectorElementId, InteractiveElement, KeyDownEvent, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, PaintQuad, Pixels, Point,
+    Render, ShapedLine, SharedString, Style, StyledText, Subscription, TextAlign, TextRun,
+    UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowHandle, WindowOptions, div, fill,
+    img, point, prelude::*, px, relative, size,
 };
 
 use super::audience::AudienceView;
@@ -18,11 +19,12 @@ use super::edit::TextEdit;
 use super::icons;
 use super::keys::{apply_nav, clamp_boundary};
 use super::theme::{
-    BORDER_WIDTH, CARET_WIDTH, CONTROL_HEIGHT, CONTROL_PADDING_X, FONT_SIZE_BODY,
-    FONT_SIZE_CAPTION, FONT_SIZE_TITLE, NOTES_PANEL_WIDTH, PANE_PADDING, Palette, RADIUS_BUTTON,
-    RADIUS_CARD, SPACING_MD, SPACING_SM, SPACING_XXS, WINDOW_PADDING, palette,
+    BORDER_WIDTH, CARET_WIDTH, CONTROL_HEIGHT, CONTROL_PADDING_X, FONT_FAMILY_MONO, FONT_SIZE_BODY,
+    FONT_SIZE_CAPTION, FONT_SIZE_SUBTITLE, FONT_SIZE_TITLE, NOTES_PANEL_WIDTH, PANE_PADDING,
+    Palette, RADIUS_BUTTON, RADIUS_CARD, SPACING_MD, SPACING_SM, SPACING_XXS, WINDOW_PADDING,
+    palette,
 };
-use crate::notes::Notes;
+use crate::notes::{MdElement, Notes};
 
 /// Ejecuta `action` sobre el `Deck` compartido y notifica a los observers.
 fn run<C: AppContext>(deck: &Entity<Deck>, action: fn(&mut Deck), cx: &mut C) {
@@ -144,12 +146,285 @@ fn editor_command(
     }
 }
 
+/// Acción de Esc en el presentador cuando no hay editor activo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EscAction {
+    /// Cierra la proyección (ventana de audiencia).
+    CloseProjection,
+    /// No hace nada (no hay proyección activa).
+    None,
+}
+
+/// Decide qué hace Esc en el presentador.
+///
+/// Con un editor activo Esc cancela la edición (lo gestiona `handle_edit_key`),
+/// así que aquí no tiene efecto. Sin edición, Esc cierra la proyección solo si
+/// está activa; si no hay proyección, no hace nada.
+fn esc_action(editing: bool, projection: bool) -> EscAction {
+    if editing || !projection {
+        EscAction::None
+    } else {
+        EscAction::CloseProjection
+    }
+}
+
+/// Título de la ventana del presentador a partir de la ruta del documento.
+///
+/// Usa el nombre del fichero (basename) y cae a `"Typshow - Controlador"` si no
+/// hay documento o la ruta no tiene nombre. Las rutas no UTF-8 se convierten con
+/// `to_string_lossy` en vez de perder el nombre.
+pub fn window_title(file_path: Option<&str>) -> String {
+    match file_path.and_then(|path| std::path::Path::new(path).file_name()) {
+        Some(name) => format!("Typshow - Controlador ({})", name.to_string_lossy()),
+        None => "Typshow - Controlador".to_string(),
+    }
+}
+
 /// `true` si el comando puede cambiar el texto (no solo la selección).
 fn command_mutates_text(command: EditorCommand) -> bool {
     matches!(
         command,
         EditorCommand::Newline | EditorCommand::Backspace | EditorCommand::Delete
     )
+}
+
+/// Estilo de un tramo de texto inline de las notas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InlineStyle {
+    /// Texto sin formato.
+    Plain,
+    /// Texto entre `**…**`.
+    Bold,
+    /// Texto entre `` `…` ``.
+    Code,
+}
+
+/// Tramo de texto inline con su estilo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InlineRun {
+    /// Texto del tramo, sin los marcadores.
+    text: String,
+    /// Formato que se aplica al tramo.
+    style: InlineStyle,
+}
+
+/// Parte el texto de una nota en tramos con formato inline.
+///
+/// Reconoce `**negrita**` y `` `código` ``. Los marcadores sin cerrar se
+/// conservan literales (no se pierde texto); los tramos vacíos (`****`, ` `` `)
+/// se descartan. Los marcadores anidados no se interpretan: el tramo exterior
+/// se queda con el texto interior tal cual, sin pánico.
+fn inline_runs(text: &str) -> Vec<InlineRun> {
+    let mut runs = Vec::new();
+    let mut plain = String::new();
+    let mut i = 0;
+    while i < text.len() {
+        let rest = &text[i..];
+        if let Some(inner) = rest.strip_prefix("**")
+            && let Some(end) = inner.find("**")
+        {
+            push_plain(&mut runs, &mut plain);
+            if !inner[..end].is_empty() {
+                runs.push(InlineRun {
+                    text: inner[..end].to_string(),
+                    style: InlineStyle::Bold,
+                });
+            }
+            i += 2 + end + 2;
+            continue;
+        }
+        if let Some(inner) = rest.strip_prefix('`')
+            && let Some(end) = inner.find('`')
+        {
+            push_plain(&mut runs, &mut plain);
+            if !inner[..end].is_empty() {
+                runs.push(InlineRun {
+                    text: inner[..end].to_string(),
+                    style: InlineStyle::Code,
+                });
+            }
+            i += 1 + end + 1;
+            continue;
+        }
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        plain.push(ch);
+        i += ch.len_utf8();
+    }
+    push_plain(&mut runs, &mut plain);
+    runs
+}
+
+/// Vuelca el texto pendiente como tramo plano, si lo hay.
+fn push_plain(runs: &mut Vec<InlineRun>, plain: &mut String) {
+    if !plain.is_empty() {
+        runs.push(InlineRun {
+            text: std::mem::take(plain),
+            style: InlineStyle::Plain,
+        });
+    }
+}
+
+/// Texto ya sin marcadores y los rangos que llevan formato.
+///
+/// Es el resultado intermedio (parte pura, testeable sin ventana) de aplicar el
+/// formato inline: `text` es la cadena que se pinta y `spans` son los rangos —en
+/// bytes y sobre `text`— que van en negrita o en código.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InlineLayout {
+    /// Texto sin los marcadores de negrita ni de código.
+    text: String,
+    /// Rangos (en bytes, sobre `text`) con su estilo. Nunca contiene
+    /// [`InlineStyle::Plain`].
+    spans: Vec<(Range<usize>, InlineStyle)>,
+}
+
+/// Compone el texto sin marcadores y los rangos con formato.
+///
+/// Parte pura de [`inline_text`]: parte el texto con [`inline_runs`] y acumula
+/// los tramos, devolviendo el texto limpio junto a los rangos de los tramos con
+/// formato. Los rangos son fronteras de byte válidas de `text` (que es UTF-8),
+/// de modo que caen siempre en frontera de carácter.
+fn inline_layout(text: &str) -> InlineLayout {
+    let mut plain = String::new();
+    let mut spans: Vec<(Range<usize>, InlineStyle)> = Vec::new();
+    for run in &inline_runs(text) {
+        let start = plain.len();
+        plain.push_str(&run.text);
+        let end = plain.len();
+        if run.style != InlineStyle::Plain {
+            spans.push((start..end, run.style));
+        }
+    }
+    InlineLayout { text: plain, spans }
+}
+
+/// Tamaño y peso de un título de markdown según su nivel.
+///
+/// Reproduce la escala tipográfica del tema con los tokens: H1 usa
+/// [`FONT_SIZE_TITLE`], H2 [`FONT_SIZE_SUBTITLE`] y de H3 en adelante
+/// [`FONT_SIZE_BODY`] con peso decreciente. Los niveles fuera de rango caen al
+/// cuerpo sin negrita.
+fn heading_style(level: u32) -> (f32, FontWeight) {
+    match level {
+        1 => (FONT_SIZE_TITLE, FontWeight::BOLD),
+        2 => (FONT_SIZE_SUBTITLE, FontWeight::BOLD),
+        3 => (FONT_SIZE_BODY, FontWeight::BOLD),
+        4 => (FONT_SIZE_BODY, FontWeight::SEMIBOLD),
+        5 => (FONT_SIZE_BODY, FontWeight::MEDIUM),
+        _ => (FONT_SIZE_BODY, FontWeight::NORMAL),
+    }
+}
+
+/// Pinta un texto con formato inline (`**negrita**` y `` `código` ``).
+///
+/// Construye un único [`StyledText`] con el texto sin marcadores y aplica los
+/// tramos como resaltados (peso/fondo) y como overrides de familia
+/// monoespaciada, de modo que el texto sigue fluyendo y partiendo líneas con
+/// normalidad.
+fn inline_text(text: &str, p: &Palette, size: f32, weight: FontWeight) -> AnyElement {
+    let InlineLayout { text, spans } = inline_layout(text);
+    let mut highlights: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
+    let mut mono: Vec<(Range<usize>, SharedString)> = Vec::new();
+    for (range, style) in &spans {
+        match style {
+            InlineStyle::Plain => {}
+            InlineStyle::Bold => highlights.push((
+                range.clone(),
+                HighlightStyle {
+                    font_weight: Some(FontWeight::BOLD),
+                    ..Default::default()
+                },
+            )),
+            InlineStyle::Code => {
+                highlights.push((
+                    range.clone(),
+                    HighlightStyle {
+                        background_color: Some(p.surface_alt.into()),
+                        ..Default::default()
+                    },
+                ));
+                mono.push((range.clone(), FONT_FAMILY_MONO.into()));
+            }
+        }
+    }
+
+    let mut el = div()
+        .text_size(px(size))
+        .text_color(p.fg)
+        .font_weight(weight);
+    if !text.is_empty() {
+        el = el.child(
+            StyledText::new(text)
+                .with_highlights(highlights)
+                .with_font_family_overrides(mono),
+        );
+    }
+    el.into_any_element()
+}
+
+/// Convierte un elemento de markdown de las notas en un elemento GPUI.
+///
+/// Reutiliza `Notes::elements` (el parseo compartido de markdown) y pinta cada
+/// variante con los tokens de [`super::theme`]: los títulos usan la escala de
+/// [`heading_style`], las listas llevan viñeta, los bloques de código usan
+/// [`FONT_FAMILY_MONO`] sobre `surface_alt` y las reglas horizontales son una
+/// línea de [`BORDER_WIDTH`]. El formato inline (`**…**`, `` `…` ``) se resuelve
+/// con [`inline_text`].
+fn note_element(el: &MdElement, p: &Palette) -> AnyElement {
+    match el {
+        MdElement::Heading(level, text) => {
+            let (size, weight) = heading_style(*level);
+            div()
+                .mt(px(SPACING_SM))
+                .mb(px(SPACING_XXS))
+                .child(inline_text(text, p, size, weight))
+                .into_any_element()
+        }
+        MdElement::Paragraph(text) => div()
+            .mb(px(SPACING_XXS))
+            .child(inline_text(text, p, FONT_SIZE_BODY, FontWeight::NORMAL))
+            .into_any_element(),
+        MdElement::ListItem(text) => div()
+            .mb(px(SPACING_XXS))
+            .flex()
+            .flex_row()
+            .gap(px(SPACING_SM))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(FONT_SIZE_BODY))
+                    .text_color(p.fg)
+                    .child("•"),
+            )
+            .child(div().flex_1().min_w_0().child(inline_text(
+                text,
+                p,
+                FONT_SIZE_BODY,
+                FontWeight::NORMAL,
+            )))
+            .into_any_element(),
+        MdElement::CodeBlock(code) => div()
+            .mb(px(SPACING_SM))
+            .p(px(SPACING_SM))
+            .bg(p.surface_alt)
+            .border(px(BORDER_WIDTH))
+            .border_color(p.border)
+            .rounded(px(RADIUS_BUTTON))
+            .font_family(FONT_FAMILY_MONO)
+            .text_size(px(FONT_SIZE_BODY))
+            .text_color(p.fg)
+            .child(code.clone())
+            .into_any_element(),
+        MdElement::HorizontalRule => div()
+            .my(px(SPACING_SM))
+            .h(px(BORDER_WIDTH))
+            .w_full()
+            .bg(p.border)
+            .into_any_element(),
+        MdElement::EmptyLine => div().h(px(SPACING_SM)).into_any_element(),
+    }
 }
 
 /// Aplica a `edit` los comandos que solo afectan al modelo de texto.
@@ -263,7 +538,7 @@ fn set_selection_from_utf16(edit: &mut TextEdit, range_utf16: &Range<usize>) {
 }
 
 /// Vuelca el estado del editor en los buffers de `Notes`, que siguen siendo la
-/// fuente de verdad compartida con la app egui.
+/// fuente de verdad del texto de la nota.
 ///
 /// `dirty` solo se marca cuando el texto de la nota cambió **de verdad**:
 /// mover el cursor, cambiar la selección o desmarcar una composición IME no
@@ -916,6 +1191,10 @@ pub struct PresenterView {
     heading_layout: Option<EditorLayout>,
     /// Arrastre de selección con el ratón en curso.
     is_selecting: bool,
+    /// Ruta del documento para la que se calculó [`Self::window_title`].
+    title_path: Option<String>,
+    /// Último título aplicado a la ventana (para no repetir `set_window_title`).
+    window_title: String,
     _sub: Subscription,
     _close_sub: Subscription,
 }
@@ -954,17 +1233,32 @@ impl PresenterView {
             note_layout: None,
             heading_layout: None,
             is_selecting: false,
+            title_path: None,
+            window_title: String::new(),
             _sub,
             _close_sub,
         };
-        if view.deck.read(cx).projection {
-            view.open_audience(cx);
+        view.title_path = view.deck.read(cx).file_path.clone();
+        view.window_title = window_title(view.title_path.as_deref());
+        window.set_window_title(&view.window_title);
+        if view.deck.read(cx).projection && !view.open_audience(cx) {
+            // La proyección venía marcada pero la ventana no se pudo abrir:
+            // sincroniza el flag con la realidad (no hay ventana → no proyecta).
+            view.deck.update(cx, |deck, cx| {
+                deck.projection = false;
+                cx.notify();
+            });
         }
         view
     }
 
     /// Abre la ventana de audiencia (fullscreen) y guarda su handle.
-    fn open_audience(&mut self, cx: &mut Context<Self>) {
+    ///
+    /// Devuelve `true` si la ventana se abrió y quedó guardada en
+    /// [`Self::audience`]. Si la apertura falla, registra el error y deja el
+    /// handle a `None`, de modo que la UI no marque la proyección como activa
+    /// sin ventana.
+    fn open_audience(&mut self, cx: &mut Context<Self>) -> bool {
         let deck = self.deck.clone();
         // Preferimos un monitor secundario (no el primario) para la audiencia;
         // si solo hay uno, el primario. En Niri/Wayland la ventana se abre en el
@@ -976,27 +1270,51 @@ impl PresenterView {
             .find(|d| Some(d.id()) != primary)
             .or_else(|| cx.primary_display())
             .map(|d| d.id());
-        self.audience = cx
-            .open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Fullscreen(Bounds::default())),
-                    // `display_id` solo lo respeta el backend X11; en Wayland
-                    // (Niri) los toplevel lo ignoran. Para fijar la salida hay
-                    // que usar una regla de compositor sobre `app_id`.
-                    display_id,
-                    app_id: Some("com.atareao.typshow.audience".to_string()),
-                    ..Default::default()
-                },
-                move |window, cx| cx.new(|cx| AudienceView::new(deck, window, cx)),
-            )
-            .ok();
+        match cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Fullscreen(Bounds::default())),
+                // `display_id` solo lo respeta el backend X11; en Wayland
+                // (Niri) los toplevel lo ignoran. Para fijar la salida hay
+                // que usar una regla de compositor sobre `app_id`.
+                display_id,
+                app_id: Some("com.atareao.typshow.audience".to_string()),
+                ..Default::default()
+            },
+            move |window, cx| cx.new(|cx| AudienceView::new(deck, window, cx)),
+        ) {
+            Ok(handle) => {
+                self.audience = Some(handle);
+                true
+            }
+            Err(error) => {
+                tracing::error!("no se pudo abrir la ventana de audiencia: {error}");
+                self.audience = None;
+                false
+            }
+        }
     }
 
     /// Cierra la ventana de audiencia si está abierta.
     fn close_audience(&mut self, cx: &mut Context<Self>) {
         if let Some(handle) = self.audience.take() {
-            let _ = handle.update(cx, |_view, window, _cx| window.remove_window());
+            // `remove_window` marca la ventana como cerrada, pero su `trail`
+            // dispara `on_window_closed` de forma síncrona y ese callback vuelve
+            // a actualizar este `Entity`. Como `close_audience` corre dentro de
+            // un update del presentador (tecla o botón), hacerlo aquí reentraría
+            // en el `Entity` prestado: se difiere al final del efecto.
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_view, window, _cx| window.remove_window());
+            });
         }
+    }
+
+    /// Cierra la proyección: oculta la ventana de audiencia y limpia el flag.
+    fn close_projection(&mut self, cx: &mut Context<Self>) {
+        self.close_audience(cx);
+        self.deck.update(cx, |deck, cx| {
+            deck.projection = false;
+            cx.notify();
+        });
     }
 
     /// Muestra u oculta la proyección, reconciliando el handle con el estado real.
@@ -1010,15 +1328,13 @@ impl PresenterView {
             }
         }
         if self.audience.is_some() {
-            self.close_audience(cx);
-            self.deck.update(cx, |deck, cx| {
-                deck.projection = false;
-                cx.notify();
-            });
+            self.close_projection(cx);
         } else {
-            self.open_audience(cx);
+            // El flag sigue al resultado real de la apertura: si falla (o si la
+            // ventana se perdió), la UI no queda marcada como proyectando.
+            let opened = self.open_audience(cx);
             self.deck.update(cx, |deck, cx| {
-                deck.projection = true;
+                deck.projection = opened;
                 cx.notify();
             });
         }
@@ -1074,7 +1390,6 @@ impl PresenterView {
         let available = notes.has_content();
         let editing = notes.editing;
         let heading = notes.heading.clone();
-        let content = notes.note_content.clone().unwrap_or_default();
         let heading_editing = notes.heading_editing;
 
         let body: gpui::AnyElement = if editing {
@@ -1140,12 +1455,7 @@ impl PresenterView {
                 .text_color(p.muted)
                 .child("No hay base de datos de notas para este documento")
                 .into_any_element()
-        } else {
-            let content = if content.trim().is_empty() {
-                "Las notas están vacías".to_string()
-            } else {
-                content
-            };
+        } else if notes.elements.is_empty() {
             div()
                 .flex_1()
                 .min_h_0()
@@ -1156,12 +1466,22 @@ impl PresenterView {
                 .rounded(px(RADIUS_CARD))
                 .id("notes-view-body")
                 .overflow_y_scroll()
-                .text_color(if content == "Las notas están vacías" {
-                    p.muted
-                } else {
-                    p.fg
-                })
-                .child(content)
+                .text_color(p.muted)
+                .child("Las notas están vacías")
+                .into_any_element()
+        } else {
+            div()
+                .flex_1()
+                .min_h_0()
+                .p(px(SPACING_MD))
+                .bg(p.surface)
+                .border(px(BORDER_WIDTH))
+                .border_color(p.border)
+                .rounded(px(RADIUS_CARD))
+                .id("notes-view-body")
+                .overflow_y_scroll()
+                .text_color(p.fg)
+                .children(notes.elements.iter().map(|el| note_element(el, p)))
                 .into_any_element()
         };
 
@@ -1328,7 +1648,16 @@ impl PresenterView {
 }
 
 impl Render for PresenterView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // El título sigue al documento: se actualiza al abrir otro fichero con
+        // «Abrir» sin recrear la ventana. Se compara primero y solo se clona la
+        // ruta (y se recalcula el título) si ha cambiado.
+        let path_changed = self.deck.read(cx).file_path.as_deref() != self.title_path.as_deref();
+        if path_changed {
+            self.title_path = self.deck.read(cx).file_path.clone();
+            self.window_title = window_title(self.title_path.as_deref());
+            window.set_window_title(&self.window_title);
+        }
         // Al empezar cada frame se crean (o descartan) los modelos de edición
         // según los flags de `Notes`: cubre todos los caminos que entran y salen
         // del modo edición (botones, «Nueva», guardar, cancelar, Esc).
@@ -1674,8 +2003,24 @@ impl PresenterView {
     /// entregue al `EntityInputHandler` (`replace_text_in_range`). Insertarlo
     /// aquí lo duplicaría (ver `editor_command`).
     fn dispatch_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.active_target(cx).is_some() {
+        // Fuente única de verdad de la precedencia: con un editor activo todo va
+        // al editor; sin él, Esc puede cerrar la proyección y el resto navega.
+        let editing = self.active_target(cx).is_some();
+        if editing {
             if self.handle_edit_key(event, window, cx) {
+                cx.stop_propagation();
+            }
+        } else if event.keystroke.key == "escape" {
+            // Esc cierra la proyección, igual que el botón de proyección. Con un
+            // editor activo no se llega aquí: Esc cancela la edición (por eso
+            // `esc_action` recibe `editing`, que es `false` en esta rama y deja
+            // explícita la precedencia).
+            // `stop_propagation` solo corta la cadena de handlers de esta
+            // ventana; los eventos de teclado no viajan entre ventanas (solo los
+            // recibe la que tiene el foco).
+            let projection = self.deck.read(cx).projection;
+            if esc_action(editing, projection) == EscAction::CloseProjection {
+                self.close_projection(cx);
                 cx.stop_propagation();
             }
         } else {
@@ -1937,7 +2282,7 @@ impl PresenterView {
     }
 
     /// Vuelca el texto y el cursor del modelo activo en `Notes` (la fuente de
-    /// verdad compartida con la app egui) sin copiar el texto.
+    /// verdad del texto de la nota) sin copiar el texto.
     ///
     /// Devuelve `true` si el texto cambió de verdad; solo entonces `write_back`
     /// marca `dirty`.
@@ -3685,5 +4030,288 @@ mod input_handler_tests {
             Some("previo"),
             "el portapapeles no se ha tocado"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // (f) Esc en el presentador: cierra la proyección salvo que se esté
+    // editando (entonces cancela la edición).
+    // -----------------------------------------------------------------------
+
+    /// Crea un `PresenterView` sin edición y sin proyección.
+    fn presenter_idle(cx: &mut TestAppContext) -> (Entity<PresenterView>, &mut VisualTestContext) {
+        let mut deck = Deck::empty();
+        deck.projection = false;
+        let deck = cx.update(|app| app.new(|_| deck));
+        cx.add_window_view(|window, cx| PresenterView::new(deck, window, cx))
+    }
+
+    #[gpui::test]
+    fn escape_closes_projection_from_presenter(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_idle(cx);
+        let audience_id = view.update_in(cx, |view, window, cx| {
+            assert!(view.open_audience(cx), "la audiencia se abre");
+            view.deck.update(cx, |deck, cx| {
+                deck.projection = true;
+                cx.notify();
+            });
+            let audience_id = view.audience.expect("la audiencia se abrió").window_id();
+
+            let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
+            view.dispatch_key(&event, window, cx);
+
+            assert!(!view.deck.read(cx).projection, "Esc cierra la proyección");
+            assert!(
+                view.audience.is_none(),
+                "el handle de la audiencia se descarta"
+            );
+            audience_id
+        });
+
+        // El cierre de la ventana se difiere al final del efecto: al vaciar la
+        // cola, la ventana de audiencia ya no existe.
+        cx.update(|_window, _app| {});
+        assert!(
+            cx.update(|_window, app| app.windows().iter().all(|w| w.window_id() != audience_id)),
+            "la ventana de audiencia se cerró de verdad"
+        );
+    }
+
+    #[gpui::test]
+    fn escape_cancels_editing_without_closing_projection(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_editing(cx, EditorTarget::Note, "hola");
+        view.update_in(cx, |view, window, cx| {
+            assert!(view.open_audience(cx), "la audiencia se abre");
+            view.deck.update(cx, |deck, cx| {
+                deck.projection = true;
+                cx.notify();
+            });
+
+            let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
+            view.dispatch_key(&event, window, cx);
+
+            assert!(!view.deck.read(cx).notes.editing, "Esc cancela la edición");
+            assert!(view.deck.read(cx).projection, "la proyección sigue activa");
+            assert!(
+                view.audience.is_some(),
+                "la ventana de audiencia sigue abierta"
+            );
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Paridad funcional (tarea 6.3): Esc en el presentador, notas con markdown y
+// título de ventana. Lógica pura, testeable sin ventana.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod parity_tests {
+    use super::*;
+    use crate::notes::MdElement;
+
+    #[test]
+    fn esc_closes_projection_only_when_idle_and_active() {
+        assert_eq!(esc_action(false, true), EscAction::CloseProjection);
+        assert_eq!(esc_action(false, false), EscAction::None);
+        assert_eq!(
+            esc_action(true, true),
+            EscAction::None,
+            "editar tiene precedencia: Esc cancela la edición"
+        );
+        assert_eq!(esc_action(true, false), EscAction::None);
+    }
+
+    #[test]
+    fn window_title_uses_basename_or_fallback() {
+        assert_eq!(
+            window_title(Some("/tmp/charla.typ")),
+            "Typshow - Controlador (charla.typ)"
+        );
+        assert_eq!(window_title(None), "Typshow - Controlador");
+        assert_eq!(window_title(Some("")), "Typshow - Controlador");
+    }
+
+    #[test]
+    fn every_md_element_maps_to_an_element() {
+        let p = palette(false);
+        let elements = [
+            MdElement::Heading(1, "Título".into()),
+            MdElement::Heading(2, "Sub".into()),
+            MdElement::Heading(6, "H6".into()),
+            MdElement::Heading(0, "H0".into()),
+            MdElement::Heading(99, "H99".into()),
+            MdElement::Paragraph("texto".into()),
+            MdElement::ListItem("item".into()),
+            MdElement::CodeBlock("let x = 1;".into()),
+            MdElement::HorizontalRule,
+            MdElement::EmptyLine,
+        ];
+        for el in &elements {
+            let _ = note_element(el, &p);
+        }
+    }
+
+    #[test]
+    fn empty_texts_do_not_panic() {
+        let p = palette(true);
+        for el in [
+            MdElement::Heading(1, String::new()),
+            MdElement::Paragraph(String::new()),
+            MdElement::ListItem(String::new()),
+            MdElement::CodeBlock(String::new()),
+        ] {
+            let _ = note_element(&el, &p);
+        }
+    }
+
+    #[test]
+    fn inline_runs_plain_text() {
+        assert_eq!(
+            inline_runs("hola mundo"),
+            vec![InlineRun {
+                text: "hola mundo".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+    }
+
+    #[test]
+    fn inline_runs_bold() {
+        assert_eq!(
+            inline_runs("a **b** c"),
+            vec![
+                InlineRun {
+                    text: "a ".into(),
+                    style: InlineStyle::Plain,
+                },
+                InlineRun {
+                    text: "b".into(),
+                    style: InlineStyle::Bold,
+                },
+                InlineRun {
+                    text: " c".into(),
+                    style: InlineStyle::Plain,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_runs_code() {
+        assert_eq!(
+            inline_runs("usa `x` ya"),
+            vec![
+                InlineRun {
+                    text: "usa ".into(),
+                    style: InlineStyle::Plain,
+                },
+                InlineRun {
+                    text: "x".into(),
+                    style: InlineStyle::Code,
+                },
+                InlineRun {
+                    text: " ya".into(),
+                    style: InlineStyle::Plain,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_runs_unclosed_markers_stay_literal() {
+        assert_eq!(
+            inline_runs("a **b"),
+            vec![InlineRun {
+                text: "a **b".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+        assert_eq!(
+            inline_runs("a `b"),
+            vec![InlineRun {
+                text: "a `b".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+    }
+
+    #[test]
+    fn inline_runs_empty_and_nested_markers_do_not_panic() {
+        assert!(inline_runs("****").is_empty(), "negrita vacía se descarta");
+        assert!(inline_runs("``").is_empty(), "código vacío se descarta");
+
+        let nested = inline_runs("**a `b` c**");
+        assert_eq!(nested.len(), 1);
+        assert_eq!(nested[0].style, InlineStyle::Bold);
+        assert_eq!(nested[0].text, "a `b` c");
+    }
+
+    #[test]
+    fn inline_layout_plain_text_has_no_spans() {
+        let layout = inline_layout("hola mundo");
+        assert_eq!(layout.text, "hola mundo");
+        assert!(layout.spans.is_empty(), "sin marcadores no hay tramos");
+    }
+
+    #[test]
+    fn inline_layout_bold_offsets_are_exact() {
+        let layout = inline_layout("a **b** c");
+        assert_eq!(layout.text, "a b c");
+        assert_eq!(layout.spans, vec![(2..3, InlineStyle::Bold)]);
+    }
+
+    #[test]
+    fn inline_layout_code_offsets_are_exact() {
+        let layout = inline_layout("usa `x` ya");
+        assert_eq!(layout.text, "usa x ya");
+        assert_eq!(layout.spans, vec![(4..5, InlineStyle::Code)]);
+    }
+
+    #[test]
+    fn inline_layout_mixed_unicode_offsets_land_on_char_boundaries() {
+        // `á` y `ñ` ocupan 2 bytes; `😀` y `λ`, 4 y 2 respectivamente. Los
+        // rangos deben medirse en bytes sobre el texto ya limpio, así que saltan
+        // por encima de esos caracteres sin partir ninguno.
+        let layout = inline_layout("café 😀 **ñ** `λ`");
+        assert_eq!(layout.text, "café 😀 ñ λ");
+        assert_eq!(
+            layout.spans,
+            vec![(11..13, InlineStyle::Bold), (14..16, InlineStyle::Code)]
+        );
+        for (range, _) in &layout.spans {
+            assert!(
+                layout.text.is_char_boundary(range.start),
+                "inicio {} en frontera de carácter",
+                range.start
+            );
+            assert!(
+                layout.text.is_char_boundary(range.end),
+                "fin {} en frontera de carácter",
+                range.end
+            );
+        }
+    }
+
+    #[test]
+    fn note_element_handles_inline_markers() {
+        let p = palette(false);
+        for el in [
+            MdElement::Paragraph("**negrita** y `código`".into()),
+            MdElement::ListItem("**item**".into()),
+            MdElement::Heading(2, "**título**".into()),
+        ] {
+            let _ = note_element(&el, &p);
+        }
+    }
+
+    #[test]
+    fn heading_style_uses_the_theme_scale() {
+        assert_eq!(heading_style(1), (FONT_SIZE_TITLE, FontWeight::BOLD));
+        assert_eq!(heading_style(2), (FONT_SIZE_SUBTITLE, FontWeight::BOLD));
+        assert_eq!(heading_style(3), (FONT_SIZE_BODY, FontWeight::BOLD));
+        assert_eq!(heading_style(4), (FONT_SIZE_BODY, FontWeight::SEMIBOLD));
+        assert_eq!(heading_style(5), (FONT_SIZE_BODY, FontWeight::MEDIUM));
+        assert_eq!(heading_style(6), (FONT_SIZE_BODY, FontWeight::NORMAL));
+        assert_eq!(heading_style(0), (FONT_SIZE_BODY, FontWeight::NORMAL));
+        assert_eq!(heading_style(99), (FONT_SIZE_BODY, FontWeight::NORMAL));
     }
 }

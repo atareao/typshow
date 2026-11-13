@@ -45,9 +45,9 @@
 
 ## 6. Cambio a framework por defecto
 
-- [ ] 6.1 Renombrar el binario GPUI a `typshow` y retirar la app egui; verificar `cargo build`
-- [ ] 6.2 Retirar `egui`/`eframe`/`egui-phosphor` de `Cargo.toml`; verificar `cargo build` y `cargo test`
-- [ ] 6.3 Verificar paridad funcional completa frente a la app egui
+- [x] 6.1 Renombrar el binario GPUI a `typshow` y retirar la app egui; verificar `cargo build`
+- [x] 6.2 Retirar `egui`/`eframe`/`egui-phosphor` de `Cargo.toml`; verificar `cargo build` y `cargo test`
+- [x] 6.3 Verificar paridad funcional completa frente a la app egui
 
 ## 7. Cierre
 

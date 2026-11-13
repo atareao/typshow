@@ -79,17 +79,17 @@ Notes auto-save when navigating to another page if edits are dirty.
 ## Architecture
 
 ```
-main.rs ── AppState (Arc<Mutex>) ── TypshowApp (presenter window)
-                                       └── FullscreenApp (projection via show_viewport_immediate)
+main.rs ── Deck (gpui Entity) ── PresenterView (presenter window)
+                                   └── audience window (projection, opened on demand)
 
-Renderer ── synchronous rendering with texture cache (HashMap<usize, TextureHandle>)
-             └── typ → typst-compile → typst-render → tiny-skia
+Deck ── compiles Typst and rasterizes pages on demand
+         └── typ → typst-compile → typst-render → RenderImage cache
 
 Notes ── SQLite (rusqlite) via NotesDb ── notes.db file alongside .typ
           └── CRUD: page_number (PK), heading, content, updated_at
 ```
 
-Both windows share a single `egui::Context` via multi-viewport immediate mode. The renderer compiles Typst sources synchronously and delivers textures to a `HashMap<usize, TextureHandle>` cache.
+The presenter and the audience are separate GPUI windows that share a single `Deck` entity; the audience window is opened and closed from the presenter. Typst sources are compiled and their pages rasterized on demand, cached as `RenderImage`s.
 
 ### Notes database format
 

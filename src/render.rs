@@ -1,16 +1,13 @@
-use egui::{ColorImage, TextureHandle};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use tracing::{debug, info};
+use tracing::info;
 use typst::Library;
 use typst::LibraryExt;
 use typst::diag::FileResult;
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
-use typst::utils::{LazyHash, Scalar};
-use typst_layout::PagedDocument;
+use typst::utils::LazyHash;
 
 // ── Font system (lazy, once) ──────────────────────────────────────────
 
@@ -91,7 +88,8 @@ pub struct TypstWorld {
 impl TypstWorld {
     pub fn new(text: &str, file_path: &str) -> Self {
         let (book, fonts) = get_system_fonts().clone();
-        let vpath = typst::syntax::VirtualPath::new("main.typ").unwrap();
+        let vpath =
+            typst::syntax::VirtualPath::new("main.typ").expect("nombre de fichero virtual fijo");
         let main_id = FileId::new(typst::syntax::RootedPath::new(
             typst::syntax::VirtualRoot::Project,
             vpath,
@@ -196,116 +194,5 @@ impl typst::World for TypstWorld {
 
     fn today(&self, _offset: Option<Duration>) -> Option<Datetime> {
         Datetime::from_ymd(2026, 6, 22)
-    }
-}
-
-// ── Typst document wrapper ──────────────────────────────────────────
-
-pub struct TypstDoc {
-    pub _world: TypstWorld,
-    pub document: PagedDocument,
-}
-
-// ── Renderer ─────────────────────────────────────────────────────────
-
-pub struct Renderer {
-    cache: HashMap<usize, TextureHandle>,
-    loaded_doc: Option<TypstDoc>,
-    current_file_path: Option<String>,
-    target_width: f64,
-}
-
-impl Default for Renderer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Renderer {
-    pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-            loaded_doc: None,
-            current_file_path: None,
-            target_width: 1920.0,
-        }
-    }
-
-    pub fn load_file(&mut self, path: &str) -> Result<(), String> {
-        info!("Renderer - Cargando documento Typst: {}", path);
-        let content =
-            std::fs::read_to_string(path).map_err(|e| format!("Error leyendo archivo: {:?}", e))?;
-        let world = TypstWorld::new(&content, path);
-        match typst::compile::<PagedDocument>(&world).output {
-            Ok(document) => {
-                self.loaded_doc = Some(TypstDoc {
-                    _world: world,
-                    document,
-                });
-                self.current_file_path = Some(path.to_string());
-                self.clear_cache();
-                info!("Renderer - Typst compilado con éxito.");
-                Ok(())
-            }
-            Err(diags) => {
-                let msg: Vec<String> = diags.iter().map(|d| format!("{:?}", d)).collect();
-                Err(format!("Error compilando Typst: {}", msg.join("\n")))
-            }
-        }
-    }
-
-    pub fn get_page(&mut self, ctx: &egui::Context, page_idx: usize) -> Option<TextureHandle> {
-        if let Some(texture) = self.cache.get(&page_idx) {
-            return Some(texture.clone());
-        }
-
-        let doc = self.loaded_doc.as_ref()?;
-        if page_idx >= doc.document.pages().len() {
-            return None;
-        }
-
-        let start_time = std::time::Instant::now();
-        let page = &doc.document.pages()[page_idx];
-        let pt_width = page.frame.size().x.to_pt();
-        let pixel_per_pt = if pt_width > 0.0 {
-            self.target_width / pt_width
-        } else {
-            2.0
-        };
-
-        let options = typst_render::RenderOptions {
-            pixel_per_pt: Scalar::new(pixel_per_pt),
-            render_bleed: false,
-        };
-
-        let pixmap = typst_render::render(page, &options);
-        let width = pixmap.width() as usize;
-        let height = pixmap.height() as usize;
-        let color_image = ColorImage::from_rgba_premultiplied([width, height], pixmap.data());
-
-        let texture = ctx.load_texture(
-            format!("page_{}", page_idx),
-            color_image,
-            egui::TextureOptions::LINEAR,
-        );
-
-        debug!(
-            "Renderer - Página {} renderizada en {:?}",
-            page_idx + 1,
-            start_time.elapsed()
-        );
-        self.cache.insert(page_idx, texture.clone());
-        Some(texture)
-    }
-
-    pub fn clear_cache(&mut self) {
-        info!("Limpiando caché de páginas.");
-        self.cache.clear();
-    }
-
-    pub fn page_count(&self) -> usize {
-        self.loaded_doc
-            .as_ref()
-            .map_or(0, |d| d.document.pages().len())
     }
 }

@@ -64,6 +64,16 @@ pub const FONT_SIZE_BODY: f32 = 14.;
 pub const FONT_SIZE_CAPTION: f32 = 11.;
 /// Título de ventana / cabecera (`17pt` → `title-1`).
 pub const FONT_SIZE_TITLE: f32 = 17.;
+/// Subtítulo de notas (`15px`): paso intermedio entre [`FONT_SIZE_TITLE`] y
+/// [`FONT_SIZE_BODY`] para los títulos de nivel 2.
+pub const FONT_SIZE_SUBTITLE: f32 = 15.;
+
+/// Familia monoespaciada para bloques de código de las notas.
+///
+/// `Adwaita Mono` acompaña a la paleta de libadwaita; si no está instalada,
+/// GPUI cae a la pila de fuentes del sistema (texto proporcional, sin romper el
+/// pintado).
+pub const FONT_FAMILY_MONO: &str = "Adwaita Mono";
 
 /// Colores base de la interfaz para un tema dado.
 ///
@@ -386,9 +396,11 @@ mod tests {
 
         assert_eq!(FONT_SIZE_CAPTION, 11.0);
         assert_eq!(FONT_SIZE_BODY, 14.0);
+        assert_eq!(FONT_SIZE_SUBTITLE, 15.0);
         assert_eq!(FONT_SIZE_TITLE, 17.0);
         // Comparaciones entre constantes: se comprueban en tiempo de compilación.
-        const { assert!(FONT_SIZE_TITLE > FONT_SIZE_BODY) };
+        const { assert!(FONT_SIZE_TITLE > FONT_SIZE_SUBTITLE) };
+        const { assert!(FONT_SIZE_SUBTITLE > FONT_SIZE_BODY) };
         const { assert!(FONT_SIZE_BODY > FONT_SIZE_CAPTION) };
 
         assert_eq!(CONTROL_PADDING_X, SPACING_MD);

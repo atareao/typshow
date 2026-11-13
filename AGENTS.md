@@ -4,17 +4,17 @@ Targeted at Linux (GNOME/Niri + DankMaterialShell), this application manages PDF
 
 ## Core Architecture & Intent
 - **Dual Windows:**
-    - **Fullscreen Window:** Displays the current PDF page for the audience. Built as an immediate viewport from `TypshowApp`.
-    - **Presenter Window:** Displays two vertical panes. Top: current page (audience view); Bottom: next page preview.
-- **Controls:** Four primary navigation buttons (Start, Previous, Next, End), theme toggle (dark/light), and viewport toggle.
-- **Future Iteration:** Markdown-based presenter notes (to be implemented).
+    - **Audience Window:** Displays the current page for the audience. Opened on demand from the presenter as a fullscreen GPUI window.
+    - **Presenter Window:** Displays two vertical panes. Top: current page (audience view); Bottom: next page preview. Also hosts the editable notes panel.
+- **Controls:** Four primary navigation buttons (Start, Previous, Next, End), theme toggle (dark/light), and projection toggle.
+- **Notes:** Markdown-based presenter notes, stored in SQLite alongside the `.typ` and editable in the presenter window.
 
 ## Technical Constraints
 - **Platform:** Linux (GNOME/Niri).
 - **Tooling:** Rust (2024 edition).
-- **UI Stack:** `egui` and `eframe` (v0.31). Uses multi-viewport / multi-window immediate rendering (single-threaded).
-- **PDF Rendering:** `pdf-render` (pure Rust, uses `vello_cpu` and `tiny-skia` to rasterize pages).
-- **Fonts:** Default sans-serif (system native matches GNOME's Cantarell).
+- **UI Stack:** `gpui` (Zed) with `gpui_platform` (Wayland/X11). One `gpui::Context` drives every window via `cx.open_window`.
+- **Rendering:** Typst (`typst`, `typst-render`) compiles the `.typ` source and rasterizes pages to `RenderImage`s.
+- **Fonts:** Default sans-serif (system native matches GNOME's Cantarell); icon glyphs come from the vendored Phosphor font.
 
 ## Critical Developer Commands
 - `cargo build`: Standard build.
@@ -22,10 +22,10 @@ Targeted at Linux (GNOME/Niri + DankMaterialShell), this application manages PDF
 - `cargo test`: Run unit and integration tests.
 
 ## Gotchas & Mistakes to Avoid
-- **Multi-viewport Lifecycle:** Both windows are handled by a single `egui::Context` via `ctx.show_viewport_immediate`.
-- **DankMaterialShell:** Style overrides in `src/theme.rs` custom-style egui visual widgets to mimic GTK4/Adwaita aesthetic (6px corner radius, Adwaita colors, flat/active button fills).
-- **State Synchronization:** Keep the page index synchronized across both windows by requesting repaint in the controller window.
-- **Wayland / Niri:** Fullscreen target uses Wayland viewport configuration.
+- **Multi-window Lifecycle:** Presenter and audience are separate GPUI windows sharing a single `Deck` entity; the audience window is opened/closed from the presenter.
+- **DankMaterialShell:** Style tokens live in `src/gpui_ui/theme.rs` and mimic the GTK4/Adwaita aesthetic (6px corner radius, Adwaita colors, flat/active button fills).
+- **State Synchronization:** Notify the `Deck` entity so both windows repaint with the current page index.
+- **Wayland / Niri:** The audience window is opened as a fullscreen Wayland window with a stable `app_id`.
 
 ## Git Flow
 

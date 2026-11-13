@@ -3,11 +3,10 @@
 //! La UI GPUI pinta los iconos como glifos de texto, no como SVG: no hace falta
 //! configurar un `AssetSource` y el renderizado es el mismo en Wayland/Niri.
 //! La fuente se vendoriza en `assets/fonts/Phosphor.ttf` (ver
-//! `assets/fonts/LICENSE-Phosphor.txt`) para no depender del crate
-//! `egui-phosphor`, que se retira en la fase 6 de la migración.
+//! `assets/fonts/LICENSE-Phosphor.txt`) para no depender de ningún crate externo.
 //!
 //! Uso: [`register`] una sola vez al arrancar la app y después [`label`] (icono
-//! + texto, como en la app egui) o [`icon`] (glifo suelto) en cada control.
+//! + texto) o [`icon`] (glifo suelto) en cada control.
 
 use std::borrow::Cow;
 
