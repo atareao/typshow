@@ -16,7 +16,11 @@ use super::audience::AudienceView;
 use super::deck::Deck;
 use super::edit::TextEdit;
 use super::keys::{apply_nav, clamp_boundary};
-use super::theme::{Palette, palette};
+use super::theme::{
+    BORDER_WIDTH, CARET_WIDTH, CONTROL_HEIGHT, CONTROL_PADDING_X, FONT_SIZE_BODY,
+    FONT_SIZE_CAPTION, FONT_SIZE_TITLE, NOTES_PANEL_WIDTH, PANE_PADDING, Palette, RADIUS_BUTTON,
+    RADIUS_CARD, SPACING_MD, SPACING_SM, SPACING_XXS, WINDOW_PADDING, palette,
+};
 use crate::notes::Notes;
 
 /// Ejecuta `action` sobre el `Deck` compartido y notifica a los observers.
@@ -391,7 +395,7 @@ fn line_runs(
             {
                 run.underline = Some(UnderlineStyle {
                     color: Some(marked_color),
-                    thickness: px(1.),
+                    thickness: px(BORDER_WIDTH),
                     wavy: false,
                 });
             }
@@ -601,8 +605,8 @@ fn editor_frame(
         .flat_map(|marked| layout.selection_bounds_for_byte_range(marked, bounds.origin))
         .map(|bounds| {
             let underline = Bounds::new(
-                point(bounds.left(), bounds.bottom() - px(1.)),
-                size(bounds.size.width, px(1.)),
+                point(bounds.left(), bounds.bottom() - px(BORDER_WIDTH)),
+                size(bounds.size.width, px(BORDER_WIDTH)),
             );
             fill(underline, marked_color)
         })
@@ -616,7 +620,7 @@ fn editor_frame(
             fill(
                 Bounds::new(
                     point(bounds.left() + line.x_for_index(in_line), top),
-                    size(px(2.), line_height),
+                    size(px(CARET_WIDTH), line_height),
                 ),
                 text_color,
             )
@@ -749,20 +753,68 @@ impl Element for TextElement {
     }
 }
 
+/// Geometría y tipografía comunes a cualquier control Adwaita.
+///
+/// `id` es obligatorio porque el estado hover de GPUI se guarda por elemento.
+fn control_base(id: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .h(px(CONTROL_HEIGHT))
+        .px(px(CONTROL_PADDING_X))
+        .rounded(px(RADIUS_BUTTON))
+        .text_size(px(FONT_SIZE_BODY))
+}
+
+/// Control neutro: superficie con borde, como los botones normales de Adwaita.
+fn control_neutral(id: &'static str, p: &Palette) -> gpui::Stateful<gpui::Div> {
+    control_base(id)
+        .bg(p.surface)
+        .border(px(BORDER_WIDTH))
+        .border_color(p.border)
+        .text_color(p.fg)
+        .hover(move |s| s.bg(p.hover).border_color(p.border_strong))
+}
+
+/// Control destructivo: botón neutro con texto de peligro.
+fn control_destructive(id: &'static str, p: &Palette) -> gpui::Stateful<gpui::Div> {
+    control_base(id)
+        .bg(p.surface)
+        .border(px(BORDER_WIDTH))
+        .border_color(p.border)
+        .text_color(p.danger)
+        .hover(move |s| s.bg(p.hover).border_color(p.border_strong))
+}
+
+/// Control sugerido: relleno de acento con texto sobre el acento.
+fn control_filled(id: &'static str, p: &Palette) -> gpui::Stateful<gpui::Div> {
+    control_base(id)
+        .bg(p.accent)
+        .text_color(p.accent_fg)
+        .hover(move |s| s.bg(p.accent_hover))
+}
+
+/// Control deshabilitado: sin hover ni interacción.
+fn control_disabled(id: &'static str, p: &Palette) -> gpui::Stateful<gpui::Div> {
+    control_base(id)
+        .bg(p.disabled_bg)
+        .border(px(BORDER_WIDTH))
+        .border_color(p.border)
+        .text_color(p.disabled_fg)
+}
+
 /// Botón de acción principal (relleno de acento).
 fn action_button(
     deck: &Entity<Deck>,
+    id: &'static str,
     label: &str,
     p: &Palette,
     action: fn(&mut Deck),
 ) -> impl IntoElement {
     let deck = deck.clone();
-    div()
-        .px_3()
-        .py_1()
-        .rounded_md()
-        .bg(p.accent)
-        .text_color(p.on_accent)
+    control_filled(id, p)
         .child(label.to_string())
         .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
             run(&deck, action, cx);
@@ -772,22 +824,24 @@ fn action_button(
 /// Botón de navegación con estado habilitado/deshabilitado.
 fn nav_button(
     deck: &Entity<Deck>,
+    id: &'static str,
     label: &str,
     enabled: bool,
     p: &Palette,
     action: fn(&mut Deck),
 ) -> gpui::AnyElement {
-    let base = div().px_3().py_1().rounded_md().child(label.to_string());
     if enabled {
         let deck = deck.clone();
-        base.bg(p.accent)
-            .text_color(p.on_accent)
+        control_neutral(id, p)
+            .child(label.to_string())
             .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                 run(&deck, action, cx);
             })
             .into_any_element()
     } else {
-        base.bg(p.surface).text_color(p.muted).into_any_element()
+        control_disabled(id, p)
+            .child(label.to_string())
+            .into_any_element()
     }
 }
 
@@ -1020,17 +1074,17 @@ impl PresenterView {
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap(px(SPACING_SM))
                 .child(
                     with_selection_handlers(
                         div()
                             .flex_1()
                             .min_h_0()
-                            .p_2()
+                            .p(px(SPACING_MD))
                             .bg(p.surface)
-                            .border_1()
+                            .border(px(BORDER_WIDTH))
                             .border_color(p.border)
-                            .rounded_md()
+                            .rounded(px(RADIUS_CARD))
                             .id("notes-edit-body")
                             .overflow_y_scroll()
                             .text_color(p.fg)
@@ -1046,14 +1100,9 @@ impl PresenterView {
                 .child(
                     div()
                         .flex()
-                        .gap_2()
+                        .gap(px(SPACING_SM))
                         .child(
-                            div()
-                                .px_3()
-                                .py_1()
-                                .rounded_md()
-                                .bg(p.accent)
-                                .text_color(p.on_accent)
+                            control_filled("notes-guardar", p)
                                 .child("Guardar")
                                 .on_mouse_down(
                                     MouseButton::Left,
@@ -1068,12 +1117,7 @@ impl PresenterView {
                                 ),
                         )
                         .child(
-                            div()
-                                .px_3()
-                                .py_1()
-                                .rounded_md()
-                                .bg(p.surface)
-                                .text_color(p.fg)
+                            control_neutral("notes-cancelar", p)
                                 .child("Cancelar")
                                 .on_mouse_down(
                                     MouseButton::Left,
@@ -1098,11 +1142,11 @@ impl PresenterView {
             div()
                 .flex_1()
                 .min_h_0()
-                .p_2()
+                .p(px(SPACING_MD))
                 .bg(p.surface)
-                .border_1()
+                .border(px(BORDER_WIDTH))
                 .border_color(p.border)
-                .rounded_md()
+                .rounded(px(RADIUS_CARD))
                 .id("notes-view-body")
                 .overflow_y_scroll()
                 .text_color(if content == "Las notas están vacías" {
@@ -1116,15 +1160,10 @@ impl PresenterView {
 
         let actions = div()
             .flex()
-            .gap_2()
+            .gap(px(SPACING_SM))
             .flex_wrap()
             .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(p.accent)
-                    .text_color(p.on_accent)
+                control_filled("notes-editar", p)
                     .child("Editar")
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1134,12 +1173,7 @@ impl PresenterView {
                     ),
             )
             .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(p.surface)
-                    .text_color(p.fg)
+                control_neutral("notes-nueva", p)
                     .child("Nueva")
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1153,12 +1187,7 @@ impl PresenterView {
                     ),
             )
             .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(p.surface)
-                    .text_color(p.fg)
+                control_destructive("notes-eliminar", p)
                     .child("Eliminar")
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1172,12 +1201,7 @@ impl PresenterView {
                     ),
             )
             .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(p.surface)
-                    .text_color(p.fg)
+                control_neutral("notes-reimportar", p)
                     .child("Reimportar")
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1191,12 +1215,7 @@ impl PresenterView {
                     ),
             )
             .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .bg(p.surface)
-                    .text_color(p.fg)
+                control_neutral("notes-titulo", p)
                     .child("Título")
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1207,13 +1226,13 @@ impl PresenterView {
             );
 
         div()
-            .w(px(320.))
+            .w(px(NOTES_PANEL_WIDTH))
             .h_full()
             .flex()
             .flex_col()
-            .gap_2()
-            .pl_3()
-            .border_l_1()
+            .gap(px(SPACING_SM))
+            .pl(px(SPACING_MD))
+            .border_l(px(BORDER_WIDTH))
             .border_color(p.border)
             .child(
                 div()
@@ -1221,6 +1240,7 @@ impl PresenterView {
                     .flex_row()
                     .justify_between()
                     .items_center()
+                    .text_size(px(FONT_SIZE_TITLE))
                     .child(div().child("Notas")),
             )
             .children((available || heading_editing).then(|| {
@@ -1229,20 +1249,22 @@ impl PresenterView {
                         .w_full()
                         .flex()
                         .flex_row()
-                        .gap_2()
+                        .gap(px(SPACING_SM))
                         .items_center()
                         .child(
                             with_selection_handlers(
                                 div()
+                                    .flex()
+                                    .items_center()
+                                    .h(px(CONTROL_HEIGHT))
                                     .flex_1()
                                     .min_w_0()
                                     .overflow_hidden()
-                                    .px_2()
-                                    .py_1()
+                                    .px(px(SPACING_SM))
                                     .bg(p.surface)
-                                    .border_1()
+                                    .border(px(BORDER_WIDTH))
                                     .border_color(p.accent)
-                                    .rounded_md()
+                                    .rounded(px(RADIUS_BUTTON))
                                     .text_color(p.fg)
                                     .cursor(CursorStyle::IBeam),
                                 EditorTarget::Heading,
@@ -1254,13 +1276,8 @@ impl PresenterView {
                             }),
                         )
                         .child(
-                            div()
+                            control_filled("notes-titulo-ok", p)
                                 .flex_shrink_0()
-                                .px_2()
-                                .py_1()
-                                .rounded_md()
-                                .bg(p.accent)
-                                .text_color(p.on_accent)
                                 .child("OK")
                                 .on_mouse_down(
                                     MouseButton::Left,
@@ -1275,13 +1292,8 @@ impl PresenterView {
                                 ),
                         )
                         .child(
-                            div()
+                            control_neutral("notes-titulo-cancelar", p)
                                 .flex_shrink_0()
-                                .px_2()
-                                .py_1()
-                                .rounded_md()
-                                .bg(p.surface)
-                                .text_color(p.fg)
                                 .child("X")
                                 .on_mouse_down(
                                     MouseButton::Left,
@@ -1294,7 +1306,7 @@ impl PresenterView {
                     div()
                         .w_full()
                         .overflow_hidden()
-                        .text_sm()
+                        .text_size(px(FONT_SIZE_CAPTION))
                         .text_color(p.muted)
                         .child(
                             heading
@@ -1352,7 +1364,14 @@ impl Render for PresenterView {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(div().text_sm().text_color(p.muted).child("Actual"))
+            .child(
+                div()
+                    .px(px(WINDOW_PADDING))
+                    .py(px(SPACING_XXS))
+                    .text_size(px(FONT_SIZE_CAPTION))
+                    .text_color(p.muted)
+                    .child("Actual"),
+            )
             .child(
                 div()
                     .flex_1()
@@ -1360,7 +1379,7 @@ impl Render for PresenterView {
                     .flex()
                     .justify_center()
                     .items_center()
-                    .p_8()
+                    .p(px(PANE_PADDING))
                     .child(match image {
                         Some(image) => img(image)
                             .size_full()
@@ -1384,9 +1403,16 @@ impl Render for PresenterView {
             .min_h_0()
             .flex()
             .flex_col()
-            .border_t_1()
+            .border_t(px(BORDER_WIDTH))
             .border_color(p.border)
-            .child(div().text_sm().text_color(p.muted).child("Siguiente"))
+            .child(
+                div()
+                    .px(px(WINDOW_PADDING))
+                    .py(px(SPACING_XXS))
+                    .text_size(px(FONT_SIZE_CAPTION))
+                    .text_color(p.muted)
+                    .child("Siguiente"),
+            )
             .child(
                 div()
                     .flex_1()
@@ -1394,14 +1420,14 @@ impl Render for PresenterView {
                     .flex()
                     .justify_center()
                     .items_center()
-                    .p_8()
+                    .p(px(PANE_PADDING))
                     .child(match next_image {
                         Some(image) => img(image)
                             .size_full()
                             .object_fit(ObjectFit::Contain)
                             .into_any_element(),
                         None => div()
-                            .text_sm()
+                            .text_size(px(FONT_SIZE_CAPTION))
                             .text_color(p.muted)
                             .child(if compiling {
                                 "Compilando…".to_string()
@@ -1421,6 +1447,9 @@ impl Render for PresenterView {
             .min_h_0()
             .flex()
             .flex_col()
+            .bg(p.view_bg)
+            .rounded(px(RADIUS_CARD))
+            .overflow_hidden()
             .on_mouse_down(MouseButton::Left, {
                 let deck = deck.clone();
                 move |_event, _window, cx| {
@@ -1457,10 +1486,11 @@ impl Render for PresenterView {
         div()
             .flex()
             .flex_col()
-            .gap_3()
-            .p_4()
+            .gap(px(SPACING_MD))
+            .p(px(WINDOW_PADDING))
             .size_full()
             .bg(p.bg)
+            .text_size(px(FONT_SIZE_BODY))
             .text_color(p.fg)
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
@@ -1472,90 +1502,135 @@ impl Render for PresenterView {
                     .flex_row()
                     .justify_between()
                     .items_center()
-                    .child(format!("Presenter - pagina {}/{total_label}", page + 1))
+                    .flex_wrap()
+                    .gap(px(SPACING_SM))
+                    .px(px(SPACING_MD))
+                    .py(px(SPACING_XXS))
+                    .rounded(px(RADIUS_BUTTON))
+                    .bg(p.headerbar_bg)
+                    .child(
+                        div()
+                            .text_size(px(FONT_SIZE_BODY))
+                            .text_color(p.muted)
+                            .child(format!("Presenter - pagina {}/{total_label}", page + 1)),
+                    )
                     .child(
                         div()
                             .flex()
                             .flex_row()
-                            .gap_2()
+                            .gap(px(SPACING_SM))
                             .child({
                                 let open_disabled = self.dialog_open || compiling;
-                                let base = div()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(p.surface)
-                                    .text_color(if open_disabled { p.muted } else { p.fg })
-                                    .child("Abrir");
                                 if open_disabled {
-                                    base.into_any_element()
+                                    control_disabled("btn-abrir", &p)
+                                        .child("Abrir")
+                                        .into_any_element()
                                 } else {
-                                    base.on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|this, _e, _w, cx| this.open_file_dialog(cx)),
-                                    )
-                                    .into_any_element()
+                                    control_neutral("btn-abrir", &p)
+                                        .child("Abrir")
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, _e, _w, cx| {
+                                                this.open_file_dialog(cx)
+                                            }),
+                                        )
+                                        .into_any_element()
                                 }
                             })
                             .child(
-                                div()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(p.surface)
-                                    .text_color(p.fg)
+                                control_neutral("btn-proyeccion", &p)
                                     .child(projection_label)
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(|this, _e, _w, cx| this.toggle_projection(cx)),
                                     ),
                             )
-                            .child(
-                                div()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(if notes_visible { p.accent } else { p.surface })
-                                    .text_color(if notes_visible { p.on_accent } else { p.fg })
+                            .child(if notes_visible {
+                                control_filled("btn-notas", &p)
                                     .child("Notas")
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(|this, _e, _w, cx| {
                                             this.with_deck(cx, Deck::toggle_notes)
                                         }),
-                                    ),
-                            )
-                            .child(action_button(&deck, "Tema", &p, Deck::toggle_theme)),
+                                    )
+                                    .into_any_element()
+                            } else {
+                                control_neutral("btn-notas", &p)
+                                    .child("Notas")
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _e, _w, cx| {
+                                            this.with_deck(cx, Deck::toggle_notes)
+                                        }),
+                                    )
+                                    .into_any_element()
+                            })
+                            .child(action_button(
+                                &deck,
+                                "btn-tema",
+                                "Tema",
+                                &p,
+                                Deck::toggle_theme,
+                            )),
                     ),
             )
             .children(if compiling { None } else { error.clone() }.map(|e| {
                 div()
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
+                    .px(px(CONTROL_PADDING_X))
+                    .py(px(SPACING_SM))
+                    .rounded(px(RADIUS_BUTTON))
                     .bg(p.danger)
-                    .text_color(p.on_accent)
+                    .text_color(p.on_danger)
                     .child(e)
             }))
             .child(
                 div()
                     .flex()
-                    .gap_2()
-                    .child(nav_button(&deck, "Inicio", has_prev, &p, Deck::first))
-                    .child(nav_button(&deck, "Anterior", has_prev, &p, Deck::prev))
-                    .child(nav_button(&deck, "Siguiente", has_next, &p, Deck::next))
-                    .child(nav_button(&deck, "Final", has_next, &p, Deck::last)),
+                    .gap(px(SPACING_SM))
+                    .child(nav_button(
+                        &deck,
+                        "nav-inicio",
+                        "Inicio",
+                        has_prev,
+                        &p,
+                        Deck::first,
+                    ))
+                    .child(nav_button(
+                        &deck,
+                        "nav-anterior",
+                        "Anterior",
+                        has_prev,
+                        &p,
+                        Deck::prev,
+                    ))
+                    .child(nav_button(
+                        &deck,
+                        "nav-siguiente",
+                        "Siguiente",
+                        has_next,
+                        &p,
+                        Deck::next,
+                    ))
+                    .child(nav_button(
+                        &deck,
+                        "nav-final",
+                        "Final",
+                        has_next,
+                        &p,
+                        Deck::last,
+                    )),
             )
             .children(editing.then(|| {
                 div()
-                    .text_sm()
-                    .text_color(p.accent)
+                    .text_size(px(FONT_SIZE_CAPTION))
+                    .text_color(p.accent_text)
                     .child("Editando nota — Esc para cancelar")
             }))
             .children(heading_editing.then(|| {
                 div()
-                    .text_sm()
-                    .text_color(p.accent)
+                    .text_size(px(FONT_SIZE_CAPTION))
+                    .text_color(p.accent_text)
                     .child("Editando título — Enter para guardar, Esc para cancelar")
             }))
             .child(main_row)
