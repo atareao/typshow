@@ -1,4 +1,26 @@
 # Changelog
+## [0.2.1] - 2026-11-13
+
+### Bug Fixes
+
+- *(gpui)* Convierte todos los píxeles de la página a BGRA
+
+### Documentation
+
+- *(release)* Documenta la 0.2.0, actualiza handoff y archiva PLAN-003
+- *(handoff)* Marca cerrado el follow-up del release 0.2.0
+- *(openspec)* Change fix-canales-color-rasterizado
+- *(openspec)* Archiva fix-canales-color-rasterizado y actualiza el handoff
+- Documenta el fix de canales de color y actualiza el handoff
+
+### Miscellaneous Tasks
+
+- *(release)* Permite disparar release.yml y hace no bloqueante el publish a crates.io
+- *(release)* Sincroniza Cargo.lock con la versión del bump
+
+### Refactor
+
+- *(gpui)* Usa as_chunks_mut para el lint de clippy 1.100
 ## [0.2.0] - 2026-11-13
 
 ### Bug Fixes
@@ -37,6 +59,7 @@
 
 - Añade las dependencias de sistema de GPUI y caché de Cargo
 - *(release)* Bump minor para breaking en la serie 0.x y arregla la detección de feat
+- Release v0.2.0
 
 ### Performance
 
