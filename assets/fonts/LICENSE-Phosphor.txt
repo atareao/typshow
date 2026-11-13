@@ -1,0 +1,33 @@
+Phosphor Icons
+-------------
+
+Fichero vendorizado: Phosphor.ttf
+Procedencia: crate `egui-phosphor` 0.9.0 (`res/Phosphor.ttf`), que a su vez
+empaqueta la fuente oficial de Phosphor Icons.
+SHA-256: 06b91e022b7ee899a63efced879392a74f0bacbda54e4467e9f663220d173a10
+
+Se copia al repositorio para no depender del crate `egui-phosphor` (retirado en
+la fase 6 de la migración a GPUI). La familia interna de la fuente es
+"Phosphor"; los glifos se pintan por codepoint desde `src/gpui_ui/icons.rs`.
+
+MIT License
+
+Copyright (c) 2020 Tobias Fried
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

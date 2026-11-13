@@ -2,12 +2,12 @@
 
 use gpui::{
     Context, Entity, FocusHandle, KeyDownEvent, MouseButton, ObjectFit, Render, Subscription,
-    Window, div, img, prelude::*,
+    Window, div, img, prelude::*, px,
 };
 
 use super::deck::Deck;
 use super::keys::apply_nav;
-use super::theme::palette;
+use super::theme::{FONT_SIZE_BODY, palette};
 
 /// Vista de la ventana de audiencia (pantalla completa).
 ///
@@ -70,6 +70,7 @@ impl Render for AudienceView {
                 .flex()
                 .justify_center()
                 .items_center()
+                .text_size(px(FONT_SIZE_BODY))
                 .text_color(p.fg)
                 .child(message)
                 .into_any_element(),
@@ -77,7 +78,7 @@ impl Render for AudienceView {
 
         div()
             .size_full()
-            .bg(p.bg)
+            .bg(p.view_bg)
             .text_color(p.fg)
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {

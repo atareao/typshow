@@ -4,7 +4,7 @@
 - **Tipo:** Migración de framework de UI (por fases)
 - **Change OpenSpec:** `openspec/changes/migracion-gpui/`
 - **Branch:** `feature/gpui-migration`
-- **Estado:** EN CURSO (Fases 1-4 completadas; M3 y M4 completados — render/apertura asíncrona, `rfd` no bloqueante, editor de notas con `EntityInputHandler`: selección teclado/ratón, IME y portapapeles. Pendiente: fases 5-7 (tema/iconos, GPUI por defecto, retirada de egui y cierre). 2.2 completado en `feature/gpui-decouple-notes` (PR pendiente).
+- **Estado:** EN CURSO (Fases 1-4 completadas, 2.2 completada y fase 5 completada (5.1-5.2); M3 y M4 completados — render/apertura asíncrona, `rfd` no bloqueante, editor de notas con `EntityInputHandler`: selección teclado/ratón, IME y portapapeles; `Notes` desacoplado de egui, con el pintado movido a `src/notes_egui.rs` (PR #16 mergeado). Pendiente: verificación visual del tema y de los iconos en Niri; siguiente, fase 6 (GPUI por defecto y retirada de egui). PR #14 listo para revisión.
 - **Precedente:** spike `gpui-spike` (PR #13); veredicto de viabilidad en `docs/gpui-spike.md`
 
 ## Objetivo
@@ -39,7 +39,7 @@ la capa de UI.
 2. **Núcleo** — `Deck` con `TypstWorld` y caché de `RenderImage`; reutilizar `AppState`/`Notes`/`NotesDb`; manejo de errores.
 3. **Presenter** — paneles Actual+Siguiente, barra de navegación, abrir fichero (`rfd`), toggle de proyección, toggle de tema, panel de notas, atajos y clic.
 4. **Audiencia** — fullscreen, sincronización, atajos/clic/Esc, monitor secundario (Niri).
-5. **Tema e iconos** — estilo Adwaita en GPUI; sustituir `egui-phosphor`.
+5. **Tema e iconos** — estilo Adwaita en GPUI (**5.1 ✅** tema Adwaita/GTK4 con tokens únicos — paleta de 21 colores + constantes de geometría, 8 tests de contraste WCAG, clippy/fmt/tests en verde; **5.2 ✅** iconos Phosphor embebidos — TTF vendorizado en `assets/fonts/`, registrado con `add_fonts` y glifo pintado con `font_family("Phosphor")` para no depender del fallback del sistema; 17 controles con icono y 5 tests (tabla dorada de codepoints + cmap de la fuente embebida); **verificación visual en Niri pendiente**); retirada del crate `egui-phosphor` en la fase 6 (siguiente).
 6. **Framework por defecto** — `typshow` = GPUI; retirar `egui`/`eframe`/`egui-phosphor`.
 7. **Cierre** — `docs/migracion-gpui.md`, verificación (`cargo build`/`test`/`clippy`).
 

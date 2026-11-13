@@ -40,8 +40,8 @@
 
 ## 5. Tema e iconos
 
-- [ ] 5.1 Reescribir el estilo Adwaita/GTK4 en GPUI (colores, radios, spacing); verificar visualmente
-- [ ] 5.2 Sustituir `egui-phosphor` por iconos en GPUI (Phosphor embebido o SVG); verificar que se ven
+- [x] 5.1 Reescribir el estilo Adwaita/GTK4 en GPUI (colores, radios, spacing); verificar visualmente
+- [x] 5.2 Sustituir `egui-phosphor` por iconos en GPUI (Phosphor embebido o SVG); verificar que se ven (verificación visual en Niri pendiente)
 
 ## 6. Cambio a framework por defecto
 

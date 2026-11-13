@@ -7574,6 +7574,7 @@ dependencies = [
  "rusqlite",
  "tracing",
  "tracing-subscriber",
+ "ttf-parser",
  "typst",
  "typst-assets",
  "typst-layout",
