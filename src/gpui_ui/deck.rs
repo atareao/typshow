@@ -470,7 +470,7 @@ pub fn rgba_to_bgra(data: &mut [u8]) {
         0,
         "el buffer debe ser RGBA (longitud múltiplo de 4)"
     );
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         gpui::swap_rgba_pa_to_bgra(pixel);
     }
 }
@@ -903,10 +903,10 @@ mod tests {
         let (w, h, data) = render_page(doc, 0).expect("render de la pagina 0");
         assert_eq!(data.len(), (w as usize) * (h as usize) * 4, "RGBA completo");
         let amarillo_bgra = [0u8, 255, 255, 255];
-        for (i, pixel) in data.chunks_exact(4).enumerate() {
+        for (i, pixel) in data.as_chunks::<4>().0.iter().enumerate() {
             assert_eq!(
                 pixel,
-                amarillo_bgra,
+                &amarillo_bgra,
                 "pixel {i} de {} no es amarillo BGRA (desfase de canales)",
                 w as usize * h as usize
             );
