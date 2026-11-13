@@ -39,7 +39,7 @@ la capa de UI.
 2. **Núcleo** — `Deck` con `TypstWorld` y caché de `RenderImage`; reutilizar `AppState`/`Notes`/`NotesDb`; manejo de errores.
 3. **Presenter** — paneles Actual+Siguiente, barra de navegación, abrir fichero (`rfd`), toggle de proyección, toggle de tema, panel de notas, atajos y clic.
 4. **Audiencia** — fullscreen, sincronización, atajos/clic/Esc, monitor secundario (Niri).
-5. **Tema e iconos** — estilo Adwaita en GPUI (**5.1 ✅** tema Adwaita/GTK4 con tokens únicos — paleta de 21 colores + constantes de geometría, 8 tests de contraste WCAG, clippy/fmt/tests en verde; **5.2 ⬜ pendiente** iconos y verificación visual del cambio de tema en Niri); sustituir `egui-phosphor`.
+5. **Tema e iconos** — estilo Adwaita en GPUI (**5.1 ✅** tema Adwaita/GTK4 con tokens únicos — paleta de 21 colores + constantes de geometría, 8 tests de contraste WCAG, clippy/fmt/tests en verde; **5.2 ✅** iconos Phosphor embebidos — TTF vendorizado en `assets/fonts/`, registrado con `add_fonts` y glifo pintado con `font_family("Phosphor")` para no depender del fallback del sistema; 17 controles con icono y 5 tests (tabla dorada de codepoints + cmap de la fuente embebida); **verificación visual en Niri pendiente**); retirada del crate `egui-phosphor` en la fase 6 (siguiente).
 6. **Framework por defecto** — `typshow` = GPUI; retirar `egui`/`eframe`/`egui-phosphor`.
 7. **Cierre** — `docs/migracion-gpui.md`, verificación (`cargo build`/`test`/`clippy`).
 

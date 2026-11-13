@@ -15,6 +15,7 @@ use gpui::{
 use super::audience::AudienceView;
 use super::deck::Deck;
 use super::edit::TextEdit;
+use super::icons;
 use super::keys::{apply_nav, clamp_boundary};
 use super::theme::{
     BORDER_WIDTH, CARET_WIDTH, CONTROL_HEIGHT, CONTROL_PADDING_X, FONT_SIZE_BODY,
@@ -809,39 +810,45 @@ fn control_disabled(id: &'static str, p: &Palette) -> gpui::Stateful<gpui::Div> 
 fn action_button(
     deck: &Entity<Deck>,
     id: &'static str,
-    label: &str,
+    label: impl IntoElement,
     p: &Palette,
     action: fn(&mut Deck),
 ) -> impl IntoElement {
     let deck = deck.clone();
-    control_filled(id, p)
-        .child(label.to_string())
-        .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+    control_filled(id, p).child(label).on_mouse_down(
+        MouseButton::Left,
+        move |_event, _window, cx| {
             run(&deck, action, cx);
-        })
+        },
+    )
 }
 
 /// Botón de navegación con estado habilitado/deshabilitado.
 fn nav_button(
     deck: &Entity<Deck>,
     id: &'static str,
-    label: &str,
+    label: impl IntoElement,
     enabled: bool,
     p: &Palette,
     action: fn(&mut Deck),
 ) -> gpui::AnyElement {
+    // El control se construye una sola vez (el contenido no es `Clone`) y solo
+    // cambia el estilo y si lleva handler de ratón.
+    let control = if enabled {
+        control_neutral(id, p)
+    } else {
+        control_disabled(id, p)
+    }
+    .child(label);
     if enabled {
         let deck = deck.clone();
-        control_neutral(id, p)
-            .child(label.to_string())
+        control
             .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                 run(&deck, action, cx);
             })
             .into_any_element()
     } else {
-        control_disabled(id, p)
-            .child(label.to_string())
-            .into_any_element()
+        control.into_any_element()
     }
 }
 
@@ -1103,7 +1110,7 @@ impl PresenterView {
                         .gap(px(SPACING_SM))
                         .child(
                             control_filled("notes-guardar", p)
-                                .child("Guardar")
+                                .child(icons::label(icons::FLOPPY_DISK, "Guardar"))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _e, _w, cx| {
@@ -1118,7 +1125,7 @@ impl PresenterView {
                         )
                         .child(
                             control_neutral("notes-cancelar", p)
-                                .child("Cancelar")
+                                .child(icons::label(icons::X_CIRCLE, "Cancelar"))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _e, _w, cx| {
@@ -1164,7 +1171,7 @@ impl PresenterView {
             .flex_wrap()
             .child(
                 control_filled("notes-editar", p)
-                    .child("Editar")
+                    .child(icons::label(icons::PENCIL_SIMPLE, "Editar"))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _e, _w, cx| {
@@ -1174,7 +1181,7 @@ impl PresenterView {
             )
             .child(
                 control_neutral("notes-nueva", p)
-                    .child("Nueva")
+                    .child(icons::label(icons::PLUS, "Nueva"))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _e, _w, cx| {
@@ -1188,7 +1195,7 @@ impl PresenterView {
             )
             .child(
                 control_destructive("notes-eliminar", p)
-                    .child("Eliminar")
+                    .child(icons::label(icons::TRASH, "Eliminar"))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _e, _w, cx| {
@@ -1202,7 +1209,7 @@ impl PresenterView {
             )
             .child(
                 control_neutral("notes-reimportar", p)
-                    .child("Reimportar")
+                    .child(icons::label(icons::ARROWS_CLOCKWISE, "Reimportar"))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _e, _w, cx| {
@@ -1216,7 +1223,7 @@ impl PresenterView {
             )
             .child(
                 control_neutral("notes-titulo", p)
-                    .child("Título")
+                    .child(icons::label(icons::PENCIL_SIMPLE, "Título"))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _e, _w, cx| {
@@ -1278,7 +1285,7 @@ impl PresenterView {
                         .child(
                             control_filled("notes-titulo-ok", p)
                                 .flex_shrink_0()
-                                .child("OK")
+                                .child(icons::icon(icons::FLOPPY_DISK, FONT_SIZE_BODY, p.accent_fg))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _e, _w, cx| {
@@ -1294,7 +1301,7 @@ impl PresenterView {
                         .child(
                             control_neutral("notes-titulo-cancelar", p)
                                 .flex_shrink_0()
-                                .child("X")
+                                .child(icons::icon(icons::X_CIRCLE, FONT_SIZE_BODY, p.fg))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _e, _w, cx| {
@@ -1477,11 +1484,14 @@ impl Render for PresenterView {
             .child(page_area)
             .children(notes_visible.then(|| self.notes_panel(cx, &p)));
 
-        let projection_label = if projection {
-            "Ocultar proyección"
-        } else {
-            "Mostrar proyección"
-        };
+        let projection_label = icons::label(
+            icons::DESKTOP,
+            if projection {
+                "Ocultar proyección"
+            } else {
+                "Mostrar proyección"
+            },
+        );
 
         div()
             .flex()
@@ -1523,11 +1533,11 @@ impl Render for PresenterView {
                                 let open_disabled = self.dialog_open || compiling;
                                 if open_disabled {
                                     control_disabled("btn-abrir", &p)
-                                        .child("Abrir")
+                                        .child(icons::label(icons::FOLDER_OPEN, "Abrir"))
                                         .into_any_element()
                                 } else {
                                     control_neutral("btn-abrir", &p)
-                                        .child("Abrir")
+                                        .child(icons::label(icons::FOLDER_OPEN, "Abrir"))
                                         .on_mouse_down(
                                             MouseButton::Left,
                                             cx.listener(|this, _e, _w, cx| {
@@ -1547,7 +1557,7 @@ impl Render for PresenterView {
                             )
                             .child(if notes_visible {
                                 control_filled("btn-notas", &p)
-                                    .child("Notas")
+                                    .child(icons::label(icons::NOTE, "Notas"))
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(|this, _e, _w, cx| {
@@ -1557,7 +1567,7 @@ impl Render for PresenterView {
                                     .into_any_element()
                             } else {
                                 control_neutral("btn-notas", &p)
-                                    .child("Notas")
+                                    .child(icons::label(icons::NOTE_BLANK, "Notas"))
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(|this, _e, _w, cx| {
@@ -1569,7 +1579,7 @@ impl Render for PresenterView {
                             .child(action_button(
                                 &deck,
                                 "btn-tema",
-                                "Tema",
+                                icons::label(if dark { icons::MOON } else { icons::SUN }, "Tema"),
                                 &p,
                                 Deck::toggle_theme,
                             )),
@@ -1591,7 +1601,7 @@ impl Render for PresenterView {
                     .child(nav_button(
                         &deck,
                         "nav-inicio",
-                        "Inicio",
+                        icons::label(icons::SKIP_BACK, "Inicio"),
                         has_prev,
                         &p,
                         Deck::first,
@@ -1599,7 +1609,7 @@ impl Render for PresenterView {
                     .child(nav_button(
                         &deck,
                         "nav-anterior",
-                        "Anterior",
+                        icons::label(icons::CARET_LEFT, "Anterior"),
                         has_prev,
                         &p,
                         Deck::prev,
@@ -1607,7 +1617,7 @@ impl Render for PresenterView {
                     .child(nav_button(
                         &deck,
                         "nav-siguiente",
-                        "Siguiente",
+                        icons::label(icons::CARET_RIGHT, "Siguiente"),
                         has_next,
                         &p,
                         Deck::next,
@@ -1615,7 +1625,7 @@ impl Render for PresenterView {
                     .child(nav_button(
                         &deck,
                         "nav-final",
-                        "Final",
+                        icons::label(icons::SKIP_FORWARD, "Final"),
                         has_next,
                         &p,
                         Deck::last,
