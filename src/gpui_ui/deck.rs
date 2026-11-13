@@ -428,7 +428,7 @@ fn compile_typst(text: &str, path: &str) -> Result<PagedDocument, String> {
     }
 }
 
-/// Rasteriza la página `idx` a RGBA premultiplicado (BGRA no premultiplicado).
+/// Rasteriza la página `idx` y devuelve BGRA no premultiplicado (listo para `RenderImage`).
 ///
 /// Función pura, pensada para ejecutarse **fuera del hilo de UI**.
 fn render_page(doc: &PagedDocument, idx: usize) -> Option<(u32, u32, Vec<u8>)> {
@@ -461,14 +461,18 @@ pub fn eviction_candidate(order: &VecDeque<usize>, keep: usize) -> Option<usize>
 /// (formato interno de `RenderImage`).
 ///
 /// Delega en `gpui::swap_rgba_pa_to_bgra` para no divergir de la implementación
-/// canónica de GPUI (evita bugs si cambia el formato interno).
+/// canónica de GPUI (evita bugs si cambia el formato interno). Esa función opera
+/// sobre **un solo píxel**, así que se invoca una vez por cada píxel del buffer
+/// (mismo patrón que el propio `svg_renderer` de GPUI).
 pub fn rgba_to_bgra(data: &mut [u8]) {
     debug_assert_eq!(
         data.len() % 4,
         0,
         "el buffer debe ser RGBA (longitud múltiplo de 4)"
     );
-    gpui::swap_rgba_pa_to_bgra(data);
+    for pixel in data.as_chunks_mut::<4>().0 {
+        gpui::swap_rgba_pa_to_bgra(pixel);
+    }
 }
 
 #[cfg(test)]
@@ -868,5 +872,46 @@ mod tests {
         let mut data = vec![10, 20, 30, 40];
         rgba_to_bgra(&mut data);
         assert_eq!(data, [191, 127, 63, 40]);
+    }
+
+    #[test]
+    fn rgba_to_bgra_converts_every_pixel() {
+        // Dos píxeles opacos con R y B distintos: rojo y azul. Cada uno debe
+        // intercambiar R y B, no solo el primero.
+        // Nota: el verde (0,255,0) es punto fijo del intercambio, así que no
+        // sirve para distinguir "solo el primer píxel" de "todos los píxeles".
+        let mut data = vec![255, 0, 0, 255, 0, 0, 255, 255];
+        rgba_to_bgra(&mut data);
+        assert_eq!(
+            data,
+            [0, 0, 255, 255, 255, 0, 0, 255],
+            "cada píxel debe tener R y B intercambiados"
+        );
+    }
+
+    #[test]
+    fn render_page_preserves_colors() {
+        let path = std::env::temp_dir().join("typshow_deck_render_colors_test.typ");
+        std::fs::write(
+            &path,
+            "#set page(margin: 0pt)\n#rect(width: 100%, height: 100%, fill: rgb(\"#ffff00\"))\n",
+        )
+        .unwrap();
+        let d = Deck::load(path.to_str().unwrap());
+        assert!(d.error.is_none(), "error inesperado: {:?}", d.error);
+        let doc = d.doc.as_ref().expect("documento compilado");
+        let (w, h, data) = render_page(doc, 0).expect("render de la pagina 0");
+        assert_eq!(data.len(), (w as usize) * (h as usize) * 4, "RGBA completo");
+        let amarillo_bgra = [0u8, 255, 255, 255];
+        for (i, pixel) in data.as_chunks::<4>().0.iter().enumerate() {
+            assert_eq!(
+                pixel,
+                &amarillo_bgra,
+                "pixel {i} de {} no es amarillo BGRA (desfase de canales)",
+                w as usize * h as usize
+            );
+        }
+        let _ = std::fs::remove_file(&path);
+        cleanup_db(&path);
     }
 }
