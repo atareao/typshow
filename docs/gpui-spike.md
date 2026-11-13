@@ -1,5 +1,11 @@
 # Spike: migración de la UI a GPUI
 
+> **Estado: cerrado (registro histórico).** Este spike se completó y su código
+> (`src/bin/gpui_spike.rs`) se retiró en la fase 6 de la migración
+> (`openspec/changes/migracion-gpui/`). El documento se conserva como registro de la
+> evaluación de viabilidad; **no describe el estado actual del proyecto**. Para la app
+> actual, ver [`docs/migracion-gpui.md`](./migracion-gpui.md).
+
 - **Issue:** [#12 — Migrar la interfaz a GPUI](https://github.com/atareao/typshow/issues/12)
 - **Change OpenSpec:** `openspec/changes/gpui-spike/`
 - **Plan:** `plans/PLAN-001.md`
@@ -52,15 +58,17 @@ GPUI y renderizan la página actual de un documento Typst como imagen.
 
 - Sin variables de entorno propias. Se reutiliza la búsqueda de paquetes Typst de
   `TypstWorld` (`TYPST_PACKAGES_DIR`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`).
-- Ejecución: `cargo run --bin gpui_spike -- <fichero.typ>`
+- Ejecución (histórica): el binario `gpui_spike` ya no existe; se lanzaba con
+  `cargo run --bin gpui_spike -- <fichero.typ>`.
 
-## Verificación realizada
+## Verificación realizada (en su momento)
 
-- `cargo build --bin gpui_spike` → **Finished** (sin errores).
-- `cargo test --bin gpui_spike` → `rgba_to_bgra_swaps_red_and_blue` **ok**.
-- `cargo build` y `cargo test` completos → **verdes** (61 + 1 + 2 = 64 tests; la app egui intacta).
-- Arranque en Wayland/Niri: `timeout 10s cargo run --bin gpui_spike -- demo.typ` → **exit 124**
-  (la app se mantuvo viva sin panic; no se pudo confirmar visualmente el contenido).
+- Compilación del binario del spike: **Finished** (sin errores).
+- Test del spike (`rgba_to_bgra_swaps_red_and_blue`): **ok**.
+- `cargo build` y `cargo test` completos: **verdes** (61 + 1 + 2 = 64 tests; la app egui
+  de entonces intacta).
+- Arranque en Wayland/Niri: la app se mantuvo viva sin panic (exit 124 por `timeout`); no
+  se pudo confirmar visualmente el contenido.
 
 ## Hallazgos
 

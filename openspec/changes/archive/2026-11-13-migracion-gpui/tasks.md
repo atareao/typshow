@@ -51,5 +51,5 @@
 
 ## 7. Cierre
 
-- [ ] 7.1 Escribir `docs/migracion-gpui.md` con el resultado y las decisiones
-- [ ] 7.2 Verificar `cargo build`, `cargo test` y `cargo clippy` en verde; actualizar `plans/PLAN-002.md`
+- [x] 7.1 Escribir `docs/migracion-gpui.md` con el resultado y las decisiones
+- [x] 7.2 Verificar `cargo build`, `cargo test` y `cargo clippy` en verde; actualizar `plans/PLAN-002.md`

@@ -2,9 +2,9 @@
 
 - **Issue:** #12 (Migrar la interfaz a GPUI) — https://github.com/atareao/typshow/issues/12
 - **Tipo:** Migración de framework de UI (por fases)
-- **Change OpenSpec:** `openspec/changes/migracion-gpui/`
+- **Change OpenSpec:** `openspec/changes/archive/2026-11-13-migracion-gpui/` (archivado; spec viva en `openspec/specs/gpui-ui/spec.md`)
 - **Branch:** `feature/gpui-migration`
-- **Estado:** EN CURSO — **fases 1-6 completadas**. GPUI es el framework de UI y `typshow` el único binario: se retiró la app egui (`src/app.rs`, `src/presenter.rs`, `src/fullscreen.rs`, `src/theme.rs`, `src/notes_egui.rs`, `src/bin/gpui_spike.rs` y `src/bin/typshow_gpui.rs`) y se quitaron `egui`, `eframe`, `egui-phosphor` y `winit` de `Cargo.toml`. Paridad funcional **cerrada**: Esc cierra la proyección (con el bug de reentrada al cerrar la ventana arreglado), markdown de las notas con formato inline (negrita/código), título de ventana atado al documento, tema Adwaita e iconos Phosphor embebidos (M3/M4: render/apertura asíncrona, `rfd` no bloqueante, editor de notas con `EntityInputHandler` — selección teclado/ratón, IME y portapapeles). Pendiente: **fase 7** (`docs/migracion-gpui.md` + verificación final `cargo build`/`test`/`clippy`) y la **verificación visual en Niri** del tema, los iconos y la proyección.
+- **Estado:** ✅ **COMPLETADO** — fases 1-7 cerradas. GPUI es el framework de UI y `typshow` el único binario: se retiró la app egui (`src/app.rs`, `src/presenter.rs`, `src/fullscreen.rs`, `src/theme.rs`, `src/notes_egui.rs`, `src/bin/gpui_spike.rs` y `src/bin/typshow_gpui.rs`) y se quitaron `egui`, `eframe`, `egui-phosphor`, `winit` y `parking_lot` de `Cargo.toml`. Paridad funcional **cerrada**: Esc cierra la proyección (con el bug de reentrada al cerrar la ventana arreglado), markdown de las notas con formato inline (negrita/código), título de ventana atado al documento, tema Adwaita e iconos Phosphor embebidos (M3/M4: render/apertura asíncrona, `rfd` no bloqueante, editor de notas con `EntityInputHandler` — selección teclado/ratón, IME y portapapeles). Fase 7 cerrada: `docs/migracion-gpui.md` reescrito, `docs/gpui-spike.md` marcado como histórico, change archivado y verificación final en verde (`cargo build`, `cargo build --release`, `cargo test` 166+2, `cargo fmt --check`, `cargo clippy -D warnings`). Único pendiente no bloqueante: **verificación visual en Niri** del tema, los iconos, el markdown y la proyección.
 - **Precedente:** spike `gpui-spike` (PR #13); veredicto de viabilidad en `docs/gpui-spike.md`
 
 ## Objetivo
@@ -43,7 +43,7 @@ la capa de UI.
 4. **Audiencia** (✅) — fullscreen, sincronización, atajos/clic/Esc (Esc cierra la proyección), monitor secundario (Niri).
 5. **Tema e iconos** — estilo Adwaita en GPUI (**5.1 ✅** tema Adwaita/GTK4 con tokens únicos — paleta de 21 colores + constantes de geometría, 8 tests de contraste WCAG, clippy/fmt/tests en verde; **5.2 ✅** iconos Phosphor embebidos — TTF vendorizado en `assets/fonts/`, registrado con `add_fonts` y glifo pintado con `font_family("Phosphor")` para no depender del fallback del sistema; 17 controles con icono y 5 tests (tabla dorada de codepoints + cmap de la fuente embebida); **verificación visual en Niri pendiente**). Crate `egui-phosphor` retirado en la fase 6.
 6. **Framework por defecto** (✅) — `typshow` = GPUI (único binario); retirados `egui`, `eframe`, `egui-phosphor` y `winit`. `src/main.rs` es el punto de entrada GPUI y la app egui (`src/app.rs`, `src/presenter.rs`, `src/fullscreen.rs`, `src/theme.rs`, `src/notes_egui.rs`) se ha eliminado.
-7. **Cierre** (⏳ pendiente) — `docs/migracion-gpui.md`, verificación (`cargo build`/`test`/`clippy`).
+7. **Cierre** (✅) — `docs/migracion-gpui.md` reescrito con el estado final y las decisiones; `docs/gpui-spike.md` marcado como registro histórico; change archivado (`2026-11-13-migracion-gpui`) con la spec viva en `openspec/specs/gpui-ui/spec.md`; verificación final en verde (`cargo build`, `cargo build --release`, `cargo test`, `cargo fmt --check`, `cargo clippy -D warnings`).
 
 ## Fuera de alcance
 
