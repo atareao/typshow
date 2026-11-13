@@ -45,11 +45,11 @@
 
 ## 6. Cambio a framework por defecto
 
-- [ ] 6.1 Renombrar el binario GPUI a `typshow` y retirar la app egui; verificar `cargo build`
-- [ ] 6.2 Retirar `egui`/`eframe`/`egui-phosphor` de `Cargo.toml`; verificar `cargo build` y `cargo test`
-- [ ] 6.3 Verificar paridad funcional completa frente a la app egui
+- [x] 6.1 Renombrar el binario GPUI a `typshow` y retirar la app egui; verificar `cargo build`
+- [x] 6.2 Retirar `egui`/`eframe`/`egui-phosphor` de `Cargo.toml`; verificar `cargo build` y `cargo test`
+- [x] 6.3 Verificar paridad funcional completa frente a la app egui
 
 ## 7. Cierre
 
-- [ ] 7.1 Escribir `docs/migracion-gpui.md` con el resultado y las decisiones
-- [ ] 7.2 Verificar `cargo build`, `cargo test` y `cargo clippy` en verde; actualizar `plans/PLAN-002.md`
+- [x] 7.1 Escribir `docs/migracion-gpui.md` con el resultado y las decisiones
+- [x] 7.2 Verificar `cargo build`, `cargo test` y `cargo clippy` en verde; actualizar `plans/PLAN-002.md`

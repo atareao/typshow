@@ -1,96 +1,23 @@
-use parking_lot::Mutex;
-use std::sync::Arc;
-use tracing::{error, info};
-use typshow::AppState;
-use typshow::TypshowApp;
+//! Punto de entrada de Typshow (UI GPUI).
+//!
+//! Abre la ventana del presentador; desde ella se abre la ventana de audiencia
+//! a pantalla completa al proyectar. Ambas comparten el estado de la
+//! presentación (`Deck`) mediante una `Entity` de GPUI y renderizan páginas
+//! Typst como imagen.
 
-fn setup_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
+use gpui::{
+    App, AppContext as _, Bounds, Entity, TitlebarOptions, WindowBounds, WindowOptions, px, size,
+};
+use gpui_platform::application;
 
-    let mut db = fontdb::Database::new();
-    db.load_system_fonts();
+use typshow::gpui_ui::deck::Deck;
+use typshow::gpui_ui::icons;
+use typshow::gpui_ui::presenter::{PresenterView, window_title};
 
-    let mut loaded_emoji = 0;
-    let mut has_cantarell = false;
+/// Mensaje de uso que se muestra cuando falta el fichero `.typ`.
+const USAGE: &str = "Uso: typshow <fichero.typ>";
 
-    for face in db.faces() {
-        let families: Vec<String> = face
-            .families
-            .iter()
-            .map(|(n, _)| n.to_lowercase())
-            .collect();
-
-        let is_cantarell = families.iter().any(|n| n == "cantarell");
-        if is_cantarell
-            && let fontdb::Source::File(path) = &face.source
-            && let Ok(data) = std::fs::read(path)
-        {
-            let font_name = "cantarell".to_string();
-            fonts.font_data.insert(
-                font_name.clone(),
-                std::sync::Arc::new(egui::FontData::from_owned(data)),
-            );
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(0, font_name);
-            fonts
-                .families
-                .entry(egui::FontFamily::Name("GTK".into()))
-                .or_default()
-                .insert(0, "cantarell".into());
-            has_cantarell = true;
-        }
-
-        let is_emoji = families.iter().any(|n| n.contains("emoji"));
-        if !is_emoji {
-            continue;
-        }
-
-        let is_color = families.iter().any(|n| n.contains("color"));
-        if is_color {
-            continue;
-        }
-
-        if let fontdb::Source::File(path) = &face.source
-            && let Ok(data) = std::fs::read(path)
-        {
-            let font_name = format!("emoji_{}", face.index);
-            fonts.font_data.insert(
-                font_name.clone(),
-                std::sync::Arc::new(egui::FontData::from_owned(data)),
-            );
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .push(font_name);
-            loaded_emoji += 1;
-        }
-    }
-
-    if !has_cantarell {
-        info!("Cantarell no encontrada, usando fuente sans-serif por defecto.");
-    }
-
-    if loaded_emoji == 0 {
-        tracing::warn!(
-            "No se encontró una fuente emoji monocromática compatible. \
-                        En Arch Linux: paru -S ttf-noto-emoji-monochrome"
-        );
-    }
-
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    info!(
-        "Phosphor font registrada. Familias Proportional: {:?}",
-        fonts.families.get(&egui::FontFamily::Proportional)
-    );
-
-    ctx.set_fonts(fonts);
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -98,40 +25,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    info!("Iniciando aplicación Typshow...");
+    let path = std::env::args().nth(1);
 
-    let args: Vec<String> = std::env::args().collect();
-    let mut state = AppState::new();
-
-    if args.len() >= 2 {
-        let file_path = &args[1];
-        info!("Cargando documento inicial desde argumento: {}", file_path);
-        if let Err(e) = state.load_file(file_path) {
-            error!("Error cargando documento inicial '{}': {:?}", file_path, e);
-        }
-    } else {
-        info!("No se especificó un documento inicial. Iniciando en modo vacío.");
+    // `-h`/`--help` se resuelve antes de abrir ninguna ventana para que
+    // funcione también sin servidor gráfico. El usuario lo pide explícitamente,
+    // así que el uso va a stdout (stderr se reserva para el argumento faltante).
+    if matches!(path.as_deref(), Some("-h" | "--help")) {
+        println!("{USAGE}");
+        return;
     }
 
-    let shared_state = Arc::new(Mutex::new(state));
+    application().run(move |cx: &mut App| {
+        // La fuente de iconos debe estar registrada antes de abrir ventanas: los
+        // controles pintan cada glifo con `font_family("Phosphor")`, y esa
+        // familia solo existe si se ha cargado aquí.
+        if let Err(error) = icons::register(cx) {
+            tracing::error!("no se pudo registrar la fuente de iconos Phosphor: {error}");
+            cx.quit();
+            return;
+        }
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Typshow - Controlador")
-            .with_inner_size([800.0, 600.0]),
-        ..Default::default()
-    };
+        let deck: Entity<Deck> = cx.new(|_| match &path {
+            Some(path) => Deck::load(path),
+            None => Deck::with_error(USAGE),
+        });
 
-    info!("Iniciando ventana de Typshow...");
-    eframe::run_native(
-        "Typshow",
-        options,
-        Box::new(|cc| {
-            setup_fonts(&cc.egui_ctx);
-            Ok(Box::new(TypshowApp::new(shared_state)))
-        }),
-    )?;
+        let presenter_deck = deck.clone();
+        let title = window_title(path.as_deref());
+        let opened = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(900.), px(650.)),
+                    cx,
+                ))),
+                // `app_id` estable para reglas de compositor (p. ej. Niri).
+                app_id: Some("com.atareao.typshow.presenter".to_string()),
+                titlebar: Some(TitlebarOptions {
+                    title: Some(title.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            move |window, cx| cx.new(|cx| PresenterView::new(presenter_deck, window, cx)),
+        );
+        if let Err(error) = opened {
+            tracing::error!("no se pudo abrir la ventana del presentador: {error}");
+            cx.quit();
+            return;
+        }
 
-    info!("Aplicación terminada con éxito.");
-    Ok(())
+        cx.activate(true);
+    });
 }

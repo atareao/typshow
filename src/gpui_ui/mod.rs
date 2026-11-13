@@ -1,8 +1,7 @@
 //! UI de Typshow basada en GPUI.
 //!
-//! Sustituye progresivamente la UI `egui`/`eframe`. Reutiliza el dominio
-//! (`TypstWorld`, `AppState`, `Notes`, `NotesDb`) y reescribe solo la capa de UI.
-//! Durante la migración convive con el binario egui (`typshow`).
+//! Es la única capa de UI del crate. Reutiliza el dominio (`TypstWorld`,
+//! `Notes`, `NotesDb`) y el binario `typshow` arranca el presentador desde aquí.
 
 pub mod audience;
 pub mod deck;
