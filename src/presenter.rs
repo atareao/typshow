@@ -453,7 +453,7 @@ impl App for TypshowApp {
                                         state_guard.notes.dirty = true;
                                     }
                                 } else {
-                                    state_guard.notes.draw(ui);
+                                    crate::notes_egui::draw(&state_guard.notes, ui);
                                 }
                             });
 

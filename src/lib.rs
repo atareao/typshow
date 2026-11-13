@@ -6,6 +6,7 @@ mod theme;
 
 mod notes;
 mod notes_db;
+mod notes_egui;
 
 pub mod gpui_ui;
 

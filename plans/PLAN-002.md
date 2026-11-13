@@ -4,7 +4,7 @@
 - **Tipo:** Migración de framework de UI (por fases)
 - **Change OpenSpec:** `openspec/changes/migracion-gpui/`
 - **Branch:** `feature/gpui-migration`
-- **Estado:** EN CURSO (Fases 1-4 completadas; M3 y M4 completados — render/apertura asíncrona, `rfd` no bloqueante, editor de notas con `EntityInputHandler`: selección teclado/ratón, IME y portapapeles. Pendiente: 2.2 desacoplar `Notes` de egui, fases 5-7). PR #14 listo para revisión.
+- **Estado:** EN CURSO (Fases 1-4 completadas; M3 y M4 completados — render/apertura asíncrona, `rfd` no bloqueante, editor de notas con `EntityInputHandler`: selección teclado/ratón, IME y portapapeles. Pendiente: fases 5-7 (tema/iconos, GPUI por defecto, retirada de egui y cierre). 2.2 completado en `feature/gpui-decouple-notes` (PR pendiente).
 - **Precedente:** spike `gpui-spike` (PR #13); veredicto de viabilidad en `docs/gpui-spike.md`
 
 ## Objetivo
