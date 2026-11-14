@@ -90,25 +90,71 @@ La app SHALL permitir abrir un fichero `.typ` desde la interfaz.
 - **THEN** el documento se carga y se muestra su primera página
 
 ### Requirement: Toggle de proyección
-La app SHALL permitir mostrar u ocultar la ventana de audiencia.
+
+La app SHALL permitir mostrar u ocultar la ventana de audiencia. Además, `Esc` SHALL cerrar
+la proyección siempre que esté activa, con independencia de que haya una edición de notas en
+curso.
 
 #### Scenario: Alternar proyección
+
 - **WHEN** el usuario activa/desactiva la proyección
 - **THEN** la ventana de audiencia se abre o se cierra en consecuencia
 
+#### Scenario: Esc cierra la proyección sin edición
+
+- **GIVEN** la proyección está activa y no hay ninguna edición en curso
+- **WHEN** el usuario pulsa `Esc`
+- **THEN** la ventana de audiencia se cierra y la proyección queda inactiva
+
+#### Scenario: Esc cierra la proyección durante la edición
+
+- **GIVEN** la proyección está activa y el usuario está editando una nota
+- **WHEN** el usuario pulsa `Esc`
+- **THEN** la ventana de audiencia se cierra y la proyección queda inactiva
+- **AND** la edición permanece abierta (no se descarta el texto que el usuario escribía)
+
+#### Scenario: Esc sin proyección cancela la edición
+
+- **GIVEN** la proyección no está activa y el usuario está editando una nota
+- **WHEN** el usuario pulsa `Esc`
+- **THEN** la edición se cancela y no ocurre nada más
+
+#### Scenario: Esc sin proyección ni edición
+
+- **GIVEN** la proyección no está activa y el usuario no está editando
+- **WHEN** el usuario pulsa `Esc`
+- **THEN** no ocurre nada
+
 ### Requirement: Panel de notas
+
 La app SHALL mostrar y permitir editar las notas del presentador asociadas a la página
-actual, con persistencia en la base de datos.
+actual, con persistencia en la base de datos. Al mostrarlas SHALL aplicar el formato Markdown
+inline completo: negrita (`**…**`), cursiva (`*…*` / `_…_`) y código (`` `…` ``), sin mostrar
+los marcadores.
 
 #### Scenario: Ver nota de la página
+
 - **WHEN** la página actual tiene una nota
 - **THEN** el panel de notas muestra su contenido (con formato Markdown)
 
+#### Scenario: Formato inline
+
+- **WHEN** una nota contiene `**negrita**`, `*cursiva*` o `` `código` ``
+- **THEN** el texto se pinta en negrita, en cursiva o en monoespaciado respectivamente, sin
+  los marcadores
+
+#### Scenario: Marcadores sin cerrar
+
+- **WHEN** una nota contiene un marcador inline sin cerrar (p. ej. `*suelto` o `**abierto`)
+- **THEN** se conserva el texto literal (no se pierde contenido)
+
 #### Scenario: Editar y guardar nota
+
 - **WHEN** el usuario edita una nota y guarda
 - **THEN** el cambio se persiste y se refleja al volver a esa página
 
 #### Scenario: Reimportar notas desde el .typ
+
 - **WHEN** el usuario pulsa "Reimportar"
 - **THEN** las notas se reconstruyen a partir del documento Typst
 
@@ -172,11 +218,24 @@ cortar la selección al portapapeles.
   offsets originales en frontera de carácter
 
 ### Requirement: Tema claro/oscuro estilo Adwaita
-La app SHALL ofrecer un tema claro y uno oscuro con estética GTK4/Adwaita.
+
+La app SHALL ofrecer un tema claro y uno oscuro con estética GTK4/Adwaita, y SHALL
+recordar la última preferencia de tema elegida por el usuario entre sesiones.
 
 #### Scenario: Alternar tema
+
 - **WHEN** el usuario alterna el tema
 - **THEN** los colores de la interfaz cambian entre claro y oscuro de forma coherente
+
+#### Scenario: Persistencia del tema
+
+- **WHEN** el usuario elige un tema (claro u oscuro) y vuelve a abrir la app
+- **THEN** la app arranca con ese mismo tema
+
+#### Scenario: Sin preferencia guardada
+
+- **WHEN** no hay ninguna preferencia de tema guardada (o el fichero no es válido)
+- **THEN** la app arranca en el tema claro por defecto
 
 ### Requirement: Iconos
 La app SHALL mostrar iconos en los controles de la interfaz.
