@@ -146,25 +146,29 @@ fn editor_command(
     }
 }
 
-/// Acción de Esc en el presentador cuando no hay editor activo.
+/// Acción de Esc en el presentador.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EscAction {
     /// Cierra la proyección (ventana de audiencia).
     CloseProjection,
-    /// No hace nada (no hay proyección activa).
+    /// Cancela la edición activa (lo ejecuta `handle_edit_key`).
+    CancelEdit,
+    /// No hace nada (sin proyección ni edición).
     None,
 }
 
 /// Decide qué hace Esc en el presentador.
 ///
-/// Con un editor activo Esc cancela la edición (lo gestiona `handle_edit_key`),
-/// así que aquí no tiene efecto. Sin edición, Esc cierra la proyección solo si
-/// está activa; si no hay proyección, no hace nada.
+/// La proyección tiene prioridad sobre la edición: si está activa, Esc cierra
+/// la proyección (la edición sigue abierta). Si no hay proyección pero sí
+/// editor, Esc cancela la edición; si no hay ninguna, no hace nada.
 fn esc_action(editing: bool, projection: bool) -> EscAction {
-    if editing || !projection {
-        EscAction::None
-    } else {
+    if projection {
         EscAction::CloseProjection
+    } else if editing {
+        EscAction::CancelEdit
+    } else {
+        EscAction::None
     }
 }
 
@@ -2003,24 +2007,30 @@ impl PresenterView {
     /// entregue al `EntityInputHandler` (`replace_text_in_range`). Insertarlo
     /// aquí lo duplicaría (ver `editor_command`).
     fn dispatch_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        // Fuente única de verdad de la precedencia: con un editor activo todo va
-        // al editor; sin él, Esc puede cerrar la proyección y el resto navega.
         let editing = self.active_target(cx).is_some();
+        // Esc: la proyección tiene prioridad sobre la edición.
+        //
+        // `stop_propagation` solo corta la cadena de handlers de esta ventana;
+        // los eventos de teclado no viajan entre ventanas (solo los recibe la
+        // que tiene el foco).
+        if event.keystroke.key == "escape" {
+            match esc_action(editing, self.deck.read(cx).projection) {
+                EscAction::CloseProjection => {
+                    self.close_projection(cx);
+                    cx.stop_propagation();
+                }
+                EscAction::CancelEdit => {
+                    // `editing` es true aquí; `handle_edit_key` mapea Esc a Cancel.
+                    if self.handle_edit_key(event, window, cx) {
+                        cx.stop_propagation();
+                    }
+                }
+                EscAction::None => {}
+            }
+            return;
+        }
         if editing {
             if self.handle_edit_key(event, window, cx) {
-                cx.stop_propagation();
-            }
-        } else if event.keystroke.key == "escape" {
-            // Esc cierra la proyección, igual que el botón de proyección. Con un
-            // editor activo no se llega aquí: Esc cancela la edición (por eso
-            // `esc_action` recibe `editing`, que es `false` en esta rama y deja
-            // explícita la precedencia).
-            // `stop_propagation` solo corta la cadena de handlers de esta
-            // ventana; los eventos de teclado no viajan entre ventanas (solo los
-            // recibe la que tiene el foco).
-            let projection = self.deck.read(cx).projection;
-            if esc_action(editing, projection) == EscAction::CloseProjection {
-                self.close_projection(cx);
                 cx.stop_propagation();
             }
         } else {
@@ -4033,8 +4043,8 @@ mod input_handler_tests {
     }
 
     // -----------------------------------------------------------------------
-    // (f) Esc en el presentador: cierra la proyección salvo que se esté
-    // editando (entonces cancela la edición).
+    // (f) Esc en el presentador: si hay proyección la cierra (aunque se esté
+    // editando); si no, cancela la edición cuando hay editor activo.
     // -----------------------------------------------------------------------
 
     /// Crea un `PresenterView` sin edición y sin proyección.
@@ -4077,23 +4087,100 @@ mod input_handler_tests {
     }
 
     #[gpui::test]
-    fn escape_cancels_editing_without_closing_projection(cx: &mut TestAppContext) {
+    fn escape_closes_projection_even_while_editing(cx: &mut TestAppContext) {
         let (view, cx) = presenter_editing(cx, EditorTarget::Note, "hola");
-        view.update_in(cx, |view, window, cx| {
+        let audience_id = view.update_in(cx, |view, window, cx| {
             assert!(view.open_audience(cx), "la audiencia se abre");
             view.deck.update(cx, |deck, cx| {
                 deck.projection = true;
                 cx.notify();
             });
+            let audience_id = view.audience.expect("la audiencia se abrió").window_id();
+
+            let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
+            view.dispatch_key(&event, window, cx);
+
+            assert!(
+                !view.deck.read(cx).projection,
+                "Esc cierra la proyección aunque se esté editando"
+            );
+            assert!(
+                view.audience.is_none(),
+                "el handle de la audiencia se descarta"
+            );
+            assert!(
+                view.deck.read(cx).notes.editing,
+                "la edición sigue abierta al cerrar la proyección"
+            );
+            assert!(
+                view.note_edit.is_some(),
+                "el modelo del editor no se descarta al cerrar la proyección"
+            );
+            audience_id
+        });
+
+        // El cierre de la ventana se difiere al final del efecto.
+        cx.update(|_window, _app| {});
+        assert!(
+            cx.update(|_window, app| app.windows().iter().all(|w| w.window_id() != audience_id)),
+            "la ventana de audiencia se cerró de verdad"
+        );
+    }
+
+    #[gpui::test]
+    fn escape_closes_projection_even_while_editing_the_heading(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_editing(cx, EditorTarget::Heading, "Titulo");
+        let audience_id = view.update_in(cx, |view, window, cx| {
+            assert!(view.open_audience(cx), "la audiencia se abre");
+            view.deck.update(cx, |deck, cx| {
+                deck.projection = true;
+                cx.notify();
+            });
+            let audience_id = view.audience.expect("la audiencia se abrió").window_id();
+
+            let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
+            view.dispatch_key(&event, window, cx);
+
+            assert!(
+                !view.deck.read(cx).projection,
+                "Esc cierra la proyección aunque se edite el título"
+            );
+            assert!(
+                view.audience.is_none(),
+                "el handle de la audiencia se descarta"
+            );
+            assert!(
+                view.deck.read(cx).notes.heading_editing,
+                "la edición del título sigue abierta al cerrar la proyección"
+            );
+            assert!(
+                view.heading_edit.is_some(),
+                "el modelo del editor del título no se descarta"
+            );
+            audience_id
+        });
+
+        // El cierre de la ventana se difiere al final del efecto.
+        cx.update(|_window, _app| {});
+        assert!(
+            cx.update(|_window, app| app.windows().iter().all(|w| w.window_id() != audience_id)),
+            "la ventana de audiencia se cerró de verdad"
+        );
+    }
+
+    #[gpui::test]
+    fn escape_cancels_edit_when_projection_inactive(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_editing(cx, EditorTarget::Note, "hola");
+        view.update_in(cx, |view, window, cx| {
+            assert!(!view.deck.read(cx).projection, "sin proyección activa");
 
             let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
             view.dispatch_key(&event, window, cx);
 
             assert!(!view.deck.read(cx).notes.editing, "Esc cancela la edición");
-            assert!(view.deck.read(cx).projection, "la proyección sigue activa");
             assert!(
-                view.audience.is_some(),
-                "la ventana de audiencia sigue abierta"
+                !view.deck.read(cx).projection,
+                "la proyección sigue inactiva"
             );
         });
     }
@@ -4109,15 +4196,15 @@ mod parity_tests {
     use crate::notes::MdElement;
 
     #[test]
-    fn esc_closes_projection_only_when_idle_and_active() {
+    fn esc_action_prefers_projection_over_editing() {
         assert_eq!(esc_action(false, true), EscAction::CloseProjection);
-        assert_eq!(esc_action(false, false), EscAction::None);
         assert_eq!(
             esc_action(true, true),
-            EscAction::None,
-            "editar tiene precedencia: Esc cancela la edición"
+            EscAction::CloseProjection,
+            "la proyección tiene prioridad"
         );
-        assert_eq!(esc_action(true, false), EscAction::None);
+        assert_eq!(esc_action(true, false), EscAction::CancelEdit);
+        assert_eq!(esc_action(false, false), EscAction::None);
     }
 
     #[test]
