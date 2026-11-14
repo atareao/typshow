@@ -1,24 +1,31 @@
-# Handoff — typshow — 2026-11-13 (release 0.2.1 publicada)
+# HANDOFF — Typshow
 
-## Objetivo
-Corregir el bug de color al rasterizar y publicarlo. **Publicado como 0.2.1.**
+## Estado actual
+Release **0.3.0** publicada: tag `v0.3.0`, GitHub Release con binarios x86_64/aarch64;
+`main` y `development` ambos en `0.3.0` y sincronizados. Los 3 changes OpenSpec archivados.
+Nada pendiente de merge; todos los CI en verde.
 
-## Estado
-- Hecho: **release 0.2.1** publicada (tag `v0.2.1`, `main` en `0.2.1`, `CHANGELOG.md`, GitHub Release con binarios x86_64/aarch64). PRs #31 (release) y #27/#29/#30 mergeados; `development` sincronizado con `main`.
-- Hecho: release 0.2.0 previa publicada (tag `v0.2.0`).
-- Hecho: **bug de color** arreglado (PR #27, issue #28): `render_page` solo convertía el primer píxel a BGRA → R/B intercambiados (amarillo→cian). Change `fix-canales-color-rasterizado` archivado.
-- Hecho: **verificación visual en Niri** del fix: el logo (Tux) muestra el pico/patas amarillos correctos.
-- Hecho: workflow de release corregido (breaking en 0.x → `--minor`; `feat` con gitmoji; `actions: write`; publish a crates.io no bloqueante; `Cargo.lock` sincronizado).
-- Hecho: `plans/PLAN-004-ARCHIVED.md`, `docs/fix-canales-color-rasterizado.md`, `docs/release-0.2.0.md`, `docs/release-0.2.1.md`.
-- Rama actual: `development` (base `main`)
-- Working tree: limpio
+## Completado (sesión 2026-11-14)
+- Merge de los PRs #36 (tema), #37 (cursiva) y #38 (Esc) a `development`.
+- Archivado OpenSpec (PR #39): `persistir-tema`, `markdown-cursiva`, `esc-cierra-proyeccion`
+  → `openspec/changes/archive/2026-11-14-*`; `openspec/specs/gpui-ui/spec.md` actualizado.
+- Release 0.3.0 (PR #40 `development`→`main`): bump **minor** (por el `feat` de tema),
+  CHANGELOG, tag `v0.3.0`, binarios `x86_64`/`aarch64`.
 
-## Pendiente
-- Verificación visual en Niri del resto: tema claro/oscuro, los 17 iconos, markdown de las notas, `Esc` cierra la proyección.
-- Editor (follow-ups): undo/redo, navegación por palabras, panel de notas redimensionable.
+## Tarea pendiente (relevo)
+- Verificación visual en Niri: tema persistente tras reinicio, cursiva en las notas y `Esc`
+  cierra la proyección con el editor abierto.
+- (opcional/cosmético) marcar las casillas de los `tasks.md` de los changes archivados.
 
-## Limitaciones conocidas
-- crates.io: no publicable mientras `gpui`/`gpui_platform` sean deps git de Zed. Job `publish` en `continue-on-error: true`.
+## Follow-ups no bloqueantes
+- Editor: undo/redo, navegación por palabras, panel de notas redimensionable.
+- Rama `feature/sync-renderer` (1 commit, sin PR): decidir abrir PR o borrar.
+- Change OpenSpec `gpui-spike` sigue activo (spike, no archivado).
 
-## Metodología / reglas
-SDD (OpenSpec) + TDD (RED→GREEN→REFACTOR). Gitflow: ramas desde `development`, todo por PR, commits `<emoji> <tipo>(<scope>): mensaje`. Delegar la escritura en subagentes.
+## Notas de reproducción / entorno
+- Lanzar: `target/debug/typshow <path.typ>` (acepta `.typ`, no PDF). `pkill -x typshow` (no `pkill -f`).
+- Captura: `grim -o DP-1 <png>`.
+- Teclado en vivo: `export YDOTOOL_SOCKET=/run/user/$(id -u)/.ydotool_socket; ydotool key 1:1 1:0` (Esc).
+- `app_id`: presenter `com.atareao.typshow.presenter`, audience `com.atareao.typshow.audience`.
+- CI clippy = **1.100.0**: `rustup run 1.100.0 cargo clippy --all-targets -- -D warnings`.
+- La app arranca con `projection = true` (la ventana de audiencia se abre sola al lanzar).
