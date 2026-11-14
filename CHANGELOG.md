@@ -1,4 +1,22 @@
 # Changelog
+## [0.3.0] - 2026-11-14
+
+### Bug Fixes
+
+- *(gpui)* Renderiza la cursiva en el markdown de las notas
+- *(gpui)* Esc cierra la proyección aunque se esté editando
+
+### Documentation
+
+- *(release)* Documenta la 0.2.1 y actualiza el handoff
+
+### Features
+
+- *(gpui)* Persiste la preferencia de tema entre sesiones
+
+### Miscellaneous Tasks
+
+- *(openspec)* Archiva los changes persistir-tema, markdown-cursiva y esc-cierra-proyeccion
 ## [0.2.1] - 2026-11-13
 
 ### Bug Fixes
@@ -17,6 +35,7 @@
 
 - *(release)* Permite disparar release.yml y hace no bloqueante el publish a crates.io
 - *(release)* Sincroniza Cargo.lock con la versión del bump
+- Release v0.2.1
 
 ### Refactor
 
