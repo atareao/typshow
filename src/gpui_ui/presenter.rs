@@ -5,12 +5,12 @@ use std::ops::Range;
 
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, CursorStyle, Element, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontWeight, GlobalElementId,
-    HighlightStyle, Hsla, InspectorElementId, InteractiveElement, KeyDownEvent, LayoutId,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, PaintQuad, Pixels, Point,
-    Render, ShapedLine, SharedString, Style, StyledText, Subscription, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowHandle, WindowOptions, div, fill,
-    img, point, prelude::*, px, relative, size,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontStyle, FontWeight,
+    GlobalElementId, HighlightStyle, Hsla, InspectorElementId, InteractiveElement, KeyDownEvent,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, PaintQuad,
+    Pixels, Point, Render, ShapedLine, SharedString, Style, StyledText, Subscription, TextAlign,
+    TextRun, UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowHandle, WindowOptions,
+    div, fill, img, point, prelude::*, px, relative, size,
 };
 
 use super::audience::AudienceView;
@@ -146,25 +146,29 @@ fn editor_command(
     }
 }
 
-/// Acción de Esc en el presentador cuando no hay editor activo.
+/// Acción de Esc en el presentador.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EscAction {
     /// Cierra la proyección (ventana de audiencia).
     CloseProjection,
-    /// No hace nada (no hay proyección activa).
+    /// Cancela la edición activa (lo ejecuta `handle_edit_key`).
+    CancelEdit,
+    /// No hace nada (sin proyección ni edición).
     None,
 }
 
 /// Decide qué hace Esc en el presentador.
 ///
-/// Con un editor activo Esc cancela la edición (lo gestiona `handle_edit_key`),
-/// así que aquí no tiene efecto. Sin edición, Esc cierra la proyección solo si
-/// está activa; si no hay proyección, no hace nada.
+/// La proyección tiene prioridad sobre la edición: si está activa, Esc cierra
+/// la proyección (la edición sigue abierta). Si no hay proyección pero sí
+/// editor, Esc cancela la edición; si no hay ninguna, no hace nada.
 fn esc_action(editing: bool, projection: bool) -> EscAction {
-    if editing || !projection {
-        EscAction::None
-    } else {
+    if projection {
         EscAction::CloseProjection
+    } else if editing {
+        EscAction::CancelEdit
+    } else {
+        EscAction::None
     }
 }
 
@@ -195,6 +199,8 @@ enum InlineStyle {
     Plain,
     /// Texto entre `**…**`.
     Bold,
+    /// Texto entre `*…*`.
+    Italic,
     /// Texto entre `` `…` ``.
     Code,
 }
@@ -210,10 +216,14 @@ struct InlineRun {
 
 /// Parte el texto de una nota en tramos con formato inline.
 ///
-/// Reconoce `**negrita**` y `` `código` ``. Los marcadores sin cerrar se
-/// conservan literales (no se pierde texto); los tramos vacíos (`****`, ` `` `)
-/// se descartan. Los marcadores anidados no se interpretan: el tramo exterior
-/// se queda con el texto interior tal cual, sin pánico.
+/// Reconoce `**negrita**`, `*cursiva*` y `` `código` ``. Los marcadores sin
+/// cerrar se conservan literales (no se pierde texto); los tramos vacíos
+/// (`****`, `` `` ``) se descartan. Los marcadores anidados no se
+/// interpretan: el tramo exterior se queda con el texto interior tal cual, sin
+/// pánico.
+///
+/// El guion bajo (`_`) **no** se interpreta: el texto que llega aquí ya pasó por
+/// [`crate::notes::Notes::parse_md`], que normaliza `_…_` a `*…*`.
 fn inline_runs(text: &str) -> Vec<InlineRun> {
     let mut runs = Vec::new();
     let mut plain = String::new();
@@ -246,6 +256,24 @@ fn inline_runs(text: &str) -> Vec<InlineRun> {
             i += 1 + end + 1;
             continue;
         }
+        // Un `*` seguido de otro `*` es un intento de negrita: si el bloque de
+        // arriba no encontró cierre, el marcador se conserva literal (no se
+        // pierde texto). Por eso aquí se exige que el contenido no empiece por
+        // `*`.
+        if let Some(inner) = rest.strip_prefix('*')
+            && !inner.starts_with('*')
+            && let Some(end) = inner.find('*')
+        {
+            push_plain(&mut runs, &mut plain);
+            if !inner[..end].is_empty() {
+                runs.push(InlineRun {
+                    text: inner[..end].to_string(),
+                    style: InlineStyle::Italic,
+                });
+            }
+            i += 1 + end + 1;
+            continue;
+        }
         let Some(ch) = rest.chars().next() else {
             break;
         };
@@ -270,10 +298,10 @@ fn push_plain(runs: &mut Vec<InlineRun>, plain: &mut String) {
 ///
 /// Es el resultado intermedio (parte pura, testeable sin ventana) de aplicar el
 /// formato inline: `text` es la cadena que se pinta y `spans` son los rangos —en
-/// bytes y sobre `text`— que van en negrita o en código.
+/// bytes y sobre `text`— que van en negrita, en cursiva o en código.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct InlineLayout {
-    /// Texto sin los marcadores de negrita ni de código.
+    /// Texto sin los marcadores de negrita, cursiva y código.
     text: String,
     /// Rangos (en bytes, sobre `text`) con su estilo. Nunca contiene
     /// [`InlineStyle::Plain`].
@@ -317,10 +345,10 @@ fn heading_style(level: u32) -> (f32, FontWeight) {
     }
 }
 
-/// Pinta un texto con formato inline (`**negrita**` y `` `código` ``).
+/// Pinta un texto con formato inline (`**negrita**`, `*cursiva*` y `` `código` ``).
 ///
 /// Construye un único [`StyledText`] con el texto sin marcadores y aplica los
-/// tramos como resaltados (peso/fondo) y como overrides de familia
+/// tramos como resaltados (peso/estilo/fondo) y como overrides de familia
 /// monoespaciada, de modo que el texto sigue fluyendo y partiendo líneas con
 /// normalidad.
 fn inline_text(text: &str, p: &Palette, size: f32, weight: FontWeight) -> AnyElement {
@@ -334,6 +362,13 @@ fn inline_text(text: &str, p: &Palette, size: f32, weight: FontWeight) -> AnyEle
                 range.clone(),
                 HighlightStyle {
                     font_weight: Some(FontWeight::BOLD),
+                    ..Default::default()
+                },
+            )),
+            InlineStyle::Italic => highlights.push((
+                range.clone(),
+                HighlightStyle {
+                    font_style: Some(FontStyle::Italic),
                     ..Default::default()
                 },
             )),
@@ -370,8 +405,8 @@ fn inline_text(text: &str, p: &Palette, size: f32, weight: FontWeight) -> AnyEle
 /// variante con los tokens de [`super::theme`]: los títulos usan la escala de
 /// [`heading_style`], las listas llevan viñeta, los bloques de código usan
 /// [`FONT_FAMILY_MONO`] sobre `surface_alt` y las reglas horizontales son una
-/// línea de [`BORDER_WIDTH`]. El formato inline (`**…**`, `` `…` ``) se resuelve
-/// con [`inline_text`].
+/// línea de [`BORDER_WIDTH`]. El formato inline (`**…**`, `*…*`, `` `…` ``) se
+/// resuelve con [`inline_text`].
 fn note_element(el: &MdElement, p: &Palette) -> AnyElement {
     match el {
         MdElement::Heading(level, text) => {
@@ -2003,24 +2038,30 @@ impl PresenterView {
     /// entregue al `EntityInputHandler` (`replace_text_in_range`). Insertarlo
     /// aquí lo duplicaría (ver `editor_command`).
     fn dispatch_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        // Fuente única de verdad de la precedencia: con un editor activo todo va
-        // al editor; sin él, Esc puede cerrar la proyección y el resto navega.
         let editing = self.active_target(cx).is_some();
+        // Esc: la proyección tiene prioridad sobre la edición.
+        //
+        // `stop_propagation` solo corta la cadena de handlers de esta ventana;
+        // los eventos de teclado no viajan entre ventanas (solo los recibe la
+        // que tiene el foco).
+        if event.keystroke.key == "escape" {
+            match esc_action(editing, self.deck.read(cx).projection) {
+                EscAction::CloseProjection => {
+                    self.close_projection(cx);
+                    cx.stop_propagation();
+                }
+                EscAction::CancelEdit => {
+                    // `editing` es true aquí; `handle_edit_key` mapea Esc a Cancel.
+                    if self.handle_edit_key(event, window, cx) {
+                        cx.stop_propagation();
+                    }
+                }
+                EscAction::None => {}
+            }
+            return;
+        }
         if editing {
             if self.handle_edit_key(event, window, cx) {
-                cx.stop_propagation();
-            }
-        } else if event.keystroke.key == "escape" {
-            // Esc cierra la proyección, igual que el botón de proyección. Con un
-            // editor activo no se llega aquí: Esc cancela la edición (por eso
-            // `esc_action` recibe `editing`, que es `false` en esta rama y deja
-            // explícita la precedencia).
-            // `stop_propagation` solo corta la cadena de handlers de esta
-            // ventana; los eventos de teclado no viajan entre ventanas (solo los
-            // recibe la que tiene el foco).
-            let projection = self.deck.read(cx).projection;
-            if esc_action(editing, projection) == EscAction::CloseProjection {
-                self.close_projection(cx);
                 cx.stop_propagation();
             }
         } else {
@@ -4033,8 +4074,8 @@ mod input_handler_tests {
     }
 
     // -----------------------------------------------------------------------
-    // (f) Esc en el presentador: cierra la proyección salvo que se esté
-    // editando (entonces cancela la edición).
+    // (f) Esc en el presentador: si hay proyección la cierra (aunque se esté
+    // editando); si no, cancela la edición cuando hay editor activo.
     // -----------------------------------------------------------------------
 
     /// Crea un `PresenterView` sin edición y sin proyección.
@@ -4077,23 +4118,100 @@ mod input_handler_tests {
     }
 
     #[gpui::test]
-    fn escape_cancels_editing_without_closing_projection(cx: &mut TestAppContext) {
+    fn escape_closes_projection_even_while_editing(cx: &mut TestAppContext) {
         let (view, cx) = presenter_editing(cx, EditorTarget::Note, "hola");
-        view.update_in(cx, |view, window, cx| {
+        let audience_id = view.update_in(cx, |view, window, cx| {
             assert!(view.open_audience(cx), "la audiencia se abre");
             view.deck.update(cx, |deck, cx| {
                 deck.projection = true;
                 cx.notify();
             });
+            let audience_id = view.audience.expect("la audiencia se abrió").window_id();
+
+            let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
+            view.dispatch_key(&event, window, cx);
+
+            assert!(
+                !view.deck.read(cx).projection,
+                "Esc cierra la proyección aunque se esté editando"
+            );
+            assert!(
+                view.audience.is_none(),
+                "el handle de la audiencia se descarta"
+            );
+            assert!(
+                view.deck.read(cx).notes.editing,
+                "la edición sigue abierta al cerrar la proyección"
+            );
+            assert!(
+                view.note_edit.is_some(),
+                "el modelo del editor no se descarta al cerrar la proyección"
+            );
+            audience_id
+        });
+
+        // El cierre de la ventana se difiere al final del efecto.
+        cx.update(|_window, _app| {});
+        assert!(
+            cx.update(|_window, app| app.windows().iter().all(|w| w.window_id() != audience_id)),
+            "la ventana de audiencia se cerró de verdad"
+        );
+    }
+
+    #[gpui::test]
+    fn escape_closes_projection_even_while_editing_the_heading(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_editing(cx, EditorTarget::Heading, "Titulo");
+        let audience_id = view.update_in(cx, |view, window, cx| {
+            assert!(view.open_audience(cx), "la audiencia se abre");
+            view.deck.update(cx, |deck, cx| {
+                deck.projection = true;
+                cx.notify();
+            });
+            let audience_id = view.audience.expect("la audiencia se abrió").window_id();
+
+            let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
+            view.dispatch_key(&event, window, cx);
+
+            assert!(
+                !view.deck.read(cx).projection,
+                "Esc cierra la proyección aunque se edite el título"
+            );
+            assert!(
+                view.audience.is_none(),
+                "el handle de la audiencia se descarta"
+            );
+            assert!(
+                view.deck.read(cx).notes.heading_editing,
+                "la edición del título sigue abierta al cerrar la proyección"
+            );
+            assert!(
+                view.heading_edit.is_some(),
+                "el modelo del editor del título no se descarta"
+            );
+            audience_id
+        });
+
+        // El cierre de la ventana se difiere al final del efecto.
+        cx.update(|_window, _app| {});
+        assert!(
+            cx.update(|_window, app| app.windows().iter().all(|w| w.window_id() != audience_id)),
+            "la ventana de audiencia se cerró de verdad"
+        );
+    }
+
+    #[gpui::test]
+    fn escape_cancels_edit_when_projection_inactive(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_editing(cx, EditorTarget::Note, "hola");
+        view.update_in(cx, |view, window, cx| {
+            assert!(!view.deck.read(cx).projection, "sin proyección activa");
 
             let event = key_down("escape", Some("\u{1b}"), Modifiers::default());
             view.dispatch_key(&event, window, cx);
 
             assert!(!view.deck.read(cx).notes.editing, "Esc cancela la edición");
-            assert!(view.deck.read(cx).projection, "la proyección sigue activa");
             assert!(
-                view.audience.is_some(),
-                "la ventana de audiencia sigue abierta"
+                !view.deck.read(cx).projection,
+                "la proyección sigue inactiva"
             );
         });
     }
@@ -4109,15 +4227,15 @@ mod parity_tests {
     use crate::notes::MdElement;
 
     #[test]
-    fn esc_closes_projection_only_when_idle_and_active() {
+    fn esc_action_prefers_projection_over_editing() {
         assert_eq!(esc_action(false, true), EscAction::CloseProjection);
-        assert_eq!(esc_action(false, false), EscAction::None);
         assert_eq!(
             esc_action(true, true),
-            EscAction::None,
-            "editar tiene precedencia: Esc cancela la edición"
+            EscAction::CloseProjection,
+            "la proyección tiene prioridad"
         );
-        assert_eq!(esc_action(true, false), EscAction::None);
+        assert_eq!(esc_action(true, false), EscAction::CancelEdit);
+        assert_eq!(esc_action(false, false), EscAction::None);
     }
 
     #[test]
@@ -4217,6 +4335,70 @@ mod parity_tests {
     }
 
     #[test]
+    fn inline_runs_italic() {
+        assert_eq!(
+            inline_runs("x *cursiva* y"),
+            vec![
+                InlineRun {
+                    text: "x ".into(),
+                    style: InlineStyle::Plain,
+                },
+                InlineRun {
+                    text: "cursiva".into(),
+                    style: InlineStyle::Italic,
+                },
+                InlineRun {
+                    text: " y".into(),
+                    style: InlineStyle::Plain,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_runs_bold_has_precedence_over_italic() {
+        // `**negrita**` debe ser un único tramo `Bold`, no un `Italic` del
+        // primer asterisco seguido de texto literal.
+        assert_eq!(
+            inline_runs("**negrita**"),
+            vec![InlineRun {
+                text: "negrita".into(),
+                style: InlineStyle::Bold,
+            }]
+        );
+        assert_eq!(
+            inline_runs("**b** y *i*"),
+            vec![
+                InlineRun {
+                    text: "b".into(),
+                    style: InlineStyle::Bold,
+                },
+                InlineRun {
+                    text: " y ".into(),
+                    style: InlineStyle::Plain,
+                },
+                InlineRun {
+                    text: "i".into(),
+                    style: InlineStyle::Italic,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_runs_does_not_treat_underscore_as_italic() {
+        // `notes::parse_md` ya normaliza `_…_` a `*…*`, así que aquí un guion
+        // bajo es texto plano: interpretarlo rompería `snake_case`.
+        assert_eq!(
+            inline_runs("foo_bar_baz"),
+            vec![InlineRun {
+                text: "foo_bar_baz".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+    }
+
+    #[test]
     fn inline_runs_unclosed_markers_stay_literal() {
         assert_eq!(
             inline_runs("a **b"),
@@ -4229,6 +4411,27 @@ mod parity_tests {
             inline_runs("a `b"),
             vec![InlineRun {
                 text: "a `b".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+    }
+
+    #[test]
+    fn inline_runs_italic_guard_keeps_lone_markers_literal() {
+        // La guarda `!inner.starts_with('*')` evita que un `*` huérfano abra
+        // cursiva: sin ella `*b` se convertiría en cursiva y la negrita sin
+        // cerrar perdería su marcador inicial.
+        assert_eq!(
+            inline_runs("*b"),
+            vec![InlineRun {
+                text: "*b".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+        assert_eq!(
+            inline_runs("**abierto"),
+            vec![InlineRun {
+                text: "**abierto".into(),
                 style: InlineStyle::Plain,
             }]
         );
@@ -4264,6 +4467,27 @@ mod parity_tests {
         let layout = inline_layout("usa `x` ya");
         assert_eq!(layout.text, "usa x ya");
         assert_eq!(layout.spans, vec![(4..5, InlineStyle::Code)]);
+    }
+
+    #[test]
+    fn inline_layout_italic_offsets_are_exact() {
+        let layout = inline_layout("x *y* z");
+        assert_eq!(layout.text, "x y z");
+        assert_eq!(layout.spans, vec![(2..3, InlineStyle::Italic)]);
+    }
+
+    #[test]
+    fn inline_layout_italic_end_to_end_from_parse_md() {
+        // El texto que llega a `inline_text` ya pasó por `Notes::parse_md`, que
+        // normaliza `_…_` a `*…*`. Este test recorre esa ruta completa.
+        let elements = Notes::parse_md("_cursiva_");
+        let Some(MdElement::Paragraph(text)) = elements.first() else {
+            panic!("esperaba un párrafo como primer elemento");
+        };
+        assert_eq!(text, "*cursiva*", "parse_md normaliza `_` a `*`");
+        let layout = inline_layout(text);
+        assert_eq!(layout.text, "cursiva");
+        assert_eq!(layout.spans, vec![(0..7, InlineStyle::Italic)]);
     }
 
     #[test]

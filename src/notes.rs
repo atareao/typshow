@@ -231,7 +231,10 @@ impl Notes {
         self.db.is_some()
     }
 
-    fn parse_md(source: &str) -> Vec<MdElement> {
+    /// Parsea el Markdown de una nota a [`MdElement`]s, re-insertando los
+    /// marcadores inline (`**`, `*`, `` ` ``) para que el renderizado posterior
+    /// los vuelva a interpretar.
+    pub(crate) fn parse_md(source: &str) -> Vec<MdElement> {
         let mut elements = Vec::new();
         let parser = Parser::new(source);
         let mut pending_text = String::new();
