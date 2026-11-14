@@ -1,6 +1,7 @@
 //! Estado compartido y render de páginas de la UI GPUI.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{AppContext, Context, RenderImage};
@@ -9,6 +10,8 @@ use typst_layout::PagedDocument;
 use tracing::warn;
 
 use crate::Notes;
+
+use super::config;
 
 /// Número máximo de páginas rasterizadas en caché antes de desalojar la menos usada.
 pub const CACHE_CAP: usize = 6;
@@ -44,6 +47,9 @@ pub struct Deck {
     cache_order: VecDeque<usize>,
     /// Páginas cuya rasterización está en curso (en segundo plano).
     pending: HashSet<usize>,
+    /// Ruta del fichero donde se persiste la preferencia de tema (`None` si no
+    /// hay directorio de configuración o en tests sin disco).
+    theme_path: Option<PathBuf>,
 }
 
 impl Deck {
@@ -65,6 +71,7 @@ impl Deck {
             cache: HashMap::new(),
             cache_order: VecDeque::new(),
             pending: HashSet::new(),
+            theme_path: None,
         }
     }
 
@@ -76,8 +83,21 @@ impl Deck {
     }
 
     /// Carga y compila un documento Typst desde `path`.
+    ///
+    /// Recupera además la preferencia de tema guardada por el usuario.
     pub fn load(path: &str) -> Self {
+        Self::load_with(path, config::theme_path())
+    }
+
+    /// Igual que `load` pero con la ruta de configuración inyectada (tests).
+    fn load_with(path: &str, theme_path: Option<PathBuf>) -> Self {
         let mut deck = Self::empty();
+        deck.theme_path = theme_path;
+        deck.dark = deck
+            .theme_path
+            .as_deref()
+            .and_then(config::load_theme_from)
+            .unwrap_or(false);
         // `open_file` ya deja el mensaje de error en el deck si falla.
         let _ = deck.open_file(path);
         deck
@@ -265,9 +285,14 @@ impl Deck {
         self.after_nav();
     }
 
-    /// Alterna el tema claro/oscuro.
+    /// Alterna el tema claro/oscuro y persiste la nueva preferencia.
     pub fn toggle_theme(&mut self) {
         self.dark = !self.dark;
+        if let Some(path) = &self.theme_path
+            && let Err(e) = config::save_theme_to(path, self.dark)
+        {
+            warn!("no se pudo guardar la preferencia de tema: {e}");
+        }
     }
 
     /// Alterna la visibilidad del panel de notas.
@@ -543,6 +568,47 @@ mod tests {
         assert!(d.dark);
         d.toggle_theme();
         assert!(!d.dark);
+    }
+
+    #[test]
+    fn toggle_theme_persists_and_reloads() {
+        let typ = std::env::temp_dir().join("typshow_deck_theme_test.typ");
+        std::fs::write(&typ, "= Hola\n").unwrap();
+        let theme = std::env::temp_dir().join("typshow_deck_theme_test.conf");
+        // Precondición determinista: sin preferencia guardada antes de cargar.
+        let _ = std::fs::remove_file(&theme);
+
+        let mut d = Deck::load_with(typ.to_str().unwrap(), Some(theme.clone()));
+        assert!(!d.dark, "sin preferencia guardada el tema debe ser claro");
+        d.toggle_theme();
+        assert!(d.dark, "tras alternar el tema debe ser oscuro");
+        assert_eq!(
+            config::load_theme_from(&theme),
+            Some(true),
+            "la preferencia debe quedar en disco"
+        );
+
+        let d2 = Deck::load_with(typ.to_str().unwrap(), Some(theme.clone()));
+        assert!(d2.dark, "al recargar debe recuperarse el tema guardado");
+
+        let _ = std::fs::remove_file(&typ);
+        let _ = std::fs::remove_file(&theme);
+        cleanup_db(&typ);
+    }
+
+    #[test]
+    fn toggle_theme_without_theme_path_does_not_persist() {
+        let mut d = Deck::empty();
+        assert!(d.theme_path.is_none(), "sin ruta no hay persistencia");
+
+        assert!(!d.dark);
+        d.toggle_theme();
+        assert!(d.dark, "el flag debe cambiar aunque no se persista");
+        assert!(d.theme_path.is_none(), "no se debe inventar una ruta");
+
+        d.toggle_theme();
+        assert!(!d.dark);
+        assert!(d.theme_path.is_none());
     }
 
     #[test]
