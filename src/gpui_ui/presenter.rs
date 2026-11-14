@@ -5,12 +5,12 @@ use std::ops::Range;
 
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, CursorStyle, Element, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontWeight, GlobalElementId,
-    HighlightStyle, Hsla, InspectorElementId, InteractiveElement, KeyDownEvent, LayoutId,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, PaintQuad, Pixels, Point,
-    Render, ShapedLine, SharedString, Style, StyledText, Subscription, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowHandle, WindowOptions, div, fill,
-    img, point, prelude::*, px, relative, size,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, FontStyle, FontWeight,
+    GlobalElementId, HighlightStyle, Hsla, InspectorElementId, InteractiveElement, KeyDownEvent,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, PaintQuad,
+    Pixels, Point, Render, ShapedLine, SharedString, Style, StyledText, Subscription, TextAlign,
+    TextRun, UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowHandle, WindowOptions,
+    div, fill, img, point, prelude::*, px, relative, size,
 };
 
 use super::audience::AudienceView;
@@ -195,6 +195,8 @@ enum InlineStyle {
     Plain,
     /// Texto entre `**…**`.
     Bold,
+    /// Texto entre `*…*`.
+    Italic,
     /// Texto entre `` `…` ``.
     Code,
 }
@@ -210,10 +212,14 @@ struct InlineRun {
 
 /// Parte el texto de una nota en tramos con formato inline.
 ///
-/// Reconoce `**negrita**` y `` `código` ``. Los marcadores sin cerrar se
-/// conservan literales (no se pierde texto); los tramos vacíos (`****`, ` `` `)
-/// se descartan. Los marcadores anidados no se interpretan: el tramo exterior
-/// se queda con el texto interior tal cual, sin pánico.
+/// Reconoce `**negrita**`, `*cursiva*` y `` `código` ``. Los marcadores sin
+/// cerrar se conservan literales (no se pierde texto); los tramos vacíos
+/// (`****`, `` `` ``) se descartan. Los marcadores anidados no se
+/// interpretan: el tramo exterior se queda con el texto interior tal cual, sin
+/// pánico.
+///
+/// El guion bajo (`_`) **no** se interpreta: el texto que llega aquí ya pasó por
+/// [`crate::notes::Notes::parse_md`], que normaliza `_…_` a `*…*`.
 fn inline_runs(text: &str) -> Vec<InlineRun> {
     let mut runs = Vec::new();
     let mut plain = String::new();
@@ -246,6 +252,24 @@ fn inline_runs(text: &str) -> Vec<InlineRun> {
             i += 1 + end + 1;
             continue;
         }
+        // Un `*` seguido de otro `*` es un intento de negrita: si el bloque de
+        // arriba no encontró cierre, el marcador se conserva literal (no se
+        // pierde texto). Por eso aquí se exige que el contenido no empiece por
+        // `*`.
+        if let Some(inner) = rest.strip_prefix('*')
+            && !inner.starts_with('*')
+            && let Some(end) = inner.find('*')
+        {
+            push_plain(&mut runs, &mut plain);
+            if !inner[..end].is_empty() {
+                runs.push(InlineRun {
+                    text: inner[..end].to_string(),
+                    style: InlineStyle::Italic,
+                });
+            }
+            i += 1 + end + 1;
+            continue;
+        }
         let Some(ch) = rest.chars().next() else {
             break;
         };
@@ -270,10 +294,10 @@ fn push_plain(runs: &mut Vec<InlineRun>, plain: &mut String) {
 ///
 /// Es el resultado intermedio (parte pura, testeable sin ventana) de aplicar el
 /// formato inline: `text` es la cadena que se pinta y `spans` son los rangos —en
-/// bytes y sobre `text`— que van en negrita o en código.
+/// bytes y sobre `text`— que van en negrita, en cursiva o en código.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct InlineLayout {
-    /// Texto sin los marcadores de negrita ni de código.
+    /// Texto sin los marcadores de negrita, cursiva y código.
     text: String,
     /// Rangos (en bytes, sobre `text`) con su estilo. Nunca contiene
     /// [`InlineStyle::Plain`].
@@ -317,10 +341,10 @@ fn heading_style(level: u32) -> (f32, FontWeight) {
     }
 }
 
-/// Pinta un texto con formato inline (`**negrita**` y `` `código` ``).
+/// Pinta un texto con formato inline (`**negrita**`, `*cursiva*` y `` `código` ``).
 ///
 /// Construye un único [`StyledText`] con el texto sin marcadores y aplica los
-/// tramos como resaltados (peso/fondo) y como overrides de familia
+/// tramos como resaltados (peso/estilo/fondo) y como overrides de familia
 /// monoespaciada, de modo que el texto sigue fluyendo y partiendo líneas con
 /// normalidad.
 fn inline_text(text: &str, p: &Palette, size: f32, weight: FontWeight) -> AnyElement {
@@ -334,6 +358,13 @@ fn inline_text(text: &str, p: &Palette, size: f32, weight: FontWeight) -> AnyEle
                 range.clone(),
                 HighlightStyle {
                     font_weight: Some(FontWeight::BOLD),
+                    ..Default::default()
+                },
+            )),
+            InlineStyle::Italic => highlights.push((
+                range.clone(),
+                HighlightStyle {
+                    font_style: Some(FontStyle::Italic),
                     ..Default::default()
                 },
             )),
@@ -370,8 +401,8 @@ fn inline_text(text: &str, p: &Palette, size: f32, weight: FontWeight) -> AnyEle
 /// variante con los tokens de [`super::theme`]: los títulos usan la escala de
 /// [`heading_style`], las listas llevan viñeta, los bloques de código usan
 /// [`FONT_FAMILY_MONO`] sobre `surface_alt` y las reglas horizontales son una
-/// línea de [`BORDER_WIDTH`]. El formato inline (`**…**`, `` `…` ``) se resuelve
-/// con [`inline_text`].
+/// línea de [`BORDER_WIDTH`]. El formato inline (`**…**`, `*…*`, `` `…` ``) se
+/// resuelve con [`inline_text`].
 fn note_element(el: &MdElement, p: &Palette) -> AnyElement {
     match el {
         MdElement::Heading(level, text) => {
@@ -4217,6 +4248,70 @@ mod parity_tests {
     }
 
     #[test]
+    fn inline_runs_italic() {
+        assert_eq!(
+            inline_runs("x *cursiva* y"),
+            vec![
+                InlineRun {
+                    text: "x ".into(),
+                    style: InlineStyle::Plain,
+                },
+                InlineRun {
+                    text: "cursiva".into(),
+                    style: InlineStyle::Italic,
+                },
+                InlineRun {
+                    text: " y".into(),
+                    style: InlineStyle::Plain,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_runs_bold_has_precedence_over_italic() {
+        // `**negrita**` debe ser un único tramo `Bold`, no un `Italic` del
+        // primer asterisco seguido de texto literal.
+        assert_eq!(
+            inline_runs("**negrita**"),
+            vec![InlineRun {
+                text: "negrita".into(),
+                style: InlineStyle::Bold,
+            }]
+        );
+        assert_eq!(
+            inline_runs("**b** y *i*"),
+            vec![
+                InlineRun {
+                    text: "b".into(),
+                    style: InlineStyle::Bold,
+                },
+                InlineRun {
+                    text: " y ".into(),
+                    style: InlineStyle::Plain,
+                },
+                InlineRun {
+                    text: "i".into(),
+                    style: InlineStyle::Italic,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_runs_does_not_treat_underscore_as_italic() {
+        // `notes::parse_md` ya normaliza `_…_` a `*…*`, así que aquí un guion
+        // bajo es texto plano: interpretarlo rompería `snake_case`.
+        assert_eq!(
+            inline_runs("foo_bar_baz"),
+            vec![InlineRun {
+                text: "foo_bar_baz".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+    }
+
+    #[test]
     fn inline_runs_unclosed_markers_stay_literal() {
         assert_eq!(
             inline_runs("a **b"),
@@ -4229,6 +4324,27 @@ mod parity_tests {
             inline_runs("a `b"),
             vec![InlineRun {
                 text: "a `b".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+    }
+
+    #[test]
+    fn inline_runs_italic_guard_keeps_lone_markers_literal() {
+        // La guarda `!inner.starts_with('*')` evita que un `*` huérfano abra
+        // cursiva: sin ella `*b` se convertiría en cursiva y la negrita sin
+        // cerrar perdería su marcador inicial.
+        assert_eq!(
+            inline_runs("*b"),
+            vec![InlineRun {
+                text: "*b".into(),
+                style: InlineStyle::Plain,
+            }]
+        );
+        assert_eq!(
+            inline_runs("**abierto"),
+            vec![InlineRun {
+                text: "**abierto".into(),
                 style: InlineStyle::Plain,
             }]
         );
@@ -4264,6 +4380,27 @@ mod parity_tests {
         let layout = inline_layout("usa `x` ya");
         assert_eq!(layout.text, "usa x ya");
         assert_eq!(layout.spans, vec![(4..5, InlineStyle::Code)]);
+    }
+
+    #[test]
+    fn inline_layout_italic_offsets_are_exact() {
+        let layout = inline_layout("x *y* z");
+        assert_eq!(layout.text, "x y z");
+        assert_eq!(layout.spans, vec![(2..3, InlineStyle::Italic)]);
+    }
+
+    #[test]
+    fn inline_layout_italic_end_to_end_from_parse_md() {
+        // El texto que llega a `inline_text` ya pasó por `Notes::parse_md`, que
+        // normaliza `_…_` a `*…*`. Este test recorre esa ruta completa.
+        let elements = Notes::parse_md("_cursiva_");
+        let Some(MdElement::Paragraph(text)) = elements.first() else {
+            panic!("esperaba un párrafo como primer elemento");
+        };
+        assert_eq!(text, "*cursiva*", "parse_md normaliza `_` a `*`");
+        let layout = inline_layout(text);
+        assert_eq!(layout.text, "cursiva");
+        assert_eq!(layout.spans, vec![(0..7, InlineStyle::Italic)]);
     }
 
     #[test]
