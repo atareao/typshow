@@ -4,6 +4,7 @@
 //! `Notes`, `NotesDb`) y el binario `typshow` arranca el presentador desde aquí.
 
 pub mod audience;
+pub mod config;
 pub mod deck;
 pub mod edit;
 pub mod icons;
