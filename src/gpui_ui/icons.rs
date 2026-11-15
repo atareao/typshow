@@ -52,9 +52,11 @@ pub const PLUS: char = '\u{E3D4}';
 pub const TRASH: char = '\u{E4A6}';
 /// Reimportar notas (`ARROWS_CLOCKWISE`).
 pub const ARROWS_CLOCKWISE: char = '\u{E094}';
+/// Salir / cerrar la app (`SIGN_OUT`).
+pub const SIGN_OUT: char = '\u{E42A}';
 
 /// Todos los iconos de la interfaz, para validarlos de una vez.
-pub const ALL: [char; 16] = [
+pub const ALL: [char; 17] = [
     FOLDER_OPEN,
     MOON,
     SUN,
@@ -71,6 +73,7 @@ pub const ALL: [char; 16] = [
     PLUS,
     TRASH,
     ARROWS_CLOCKWISE,
+    SIGN_OUT,
 ];
 
 /// Registra la fuente Phosphor en el sistema de texto de GPUI.
@@ -144,7 +147,7 @@ mod tests {
     fn los_codepoints_coinciden_con_la_tabla_dorada() {
         // Tabla dorada: (nombre, constante, codepoint documentado). Un typo en
         // una constante o un cambio de codepoint rompe este test.
-        let tabla: [(&str, char, char); 16] = [
+        let tabla: [(&str, char, char); 17] = [
             ("FOLDER_OPEN", FOLDER_OPEN, '\u{E256}'),
             ("MOON", MOON, '\u{E330}'),
             ("SUN", SUN, '\u{E472}'),
@@ -161,6 +164,7 @@ mod tests {
             ("PLUS", PLUS, '\u{E3D4}'),
             ("TRASH", TRASH, '\u{E4A6}'),
             ("ARROWS_CLOCKWISE", ARROWS_CLOCKWISE, '\u{E094}'),
+            ("SIGN_OUT", SIGN_OUT, '\u{E42A}'),
         ];
         for (nombre, actual, esperado) in tabla {
             assert_eq!(
