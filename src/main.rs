@@ -13,6 +13,7 @@ use gpui_platform::application;
 use typshow::gpui_ui::deck::Deck;
 use typshow::gpui_ui::icons;
 use typshow::gpui_ui::presenter::{PresenterView, window_title};
+use typshow::gpui_ui::quits_app_on_close;
 
 /// Mensaje de uso que se muestra cuando falta el fichero `.typ`.
 const USAGE: &str = "Uso: typshow <fichero.typ>";
@@ -47,7 +48,7 @@ fn main() {
 
         let deck: Entity<Deck> = cx.new(|_| match &path {
             Some(path) => Deck::load(path),
-            None => Deck::with_error(USAGE),
+            None => Deck::no_document(USAGE),
         });
 
         let presenter_deck = deck.clone();
@@ -69,11 +70,32 @@ fn main() {
             },
             move |window, cx| cx.new(|cx| PresenterView::new(presenter_deck, window, cx)),
         );
-        if let Err(error) = opened {
-            tracing::error!("no se pudo abrir la ventana del presentador: {error}");
-            cx.quit();
-            return;
-        }
+        let presenter = match opened {
+            Ok(handle) => handle,
+            Err(error) => {
+                tracing::error!("no se pudo abrir la ventana del presentador: {error}");
+                cx.quit();
+                return;
+            }
+        };
+
+        // Cerrar la ventana del presentador termina la app (y con ella la audiencia,
+        // si estaba proyectando). Cerrar solo la ventana de audiencia NO termina la
+        // app: eso lo gestiona `PresenterView` desactivando la proyección.
+        //
+        // La decisión vive en el predicado puro `quits_app_on_close` (testeable sin
+        // ventanas); aquí solo se cablea al ciclo de vida real de GPUI.
+        //
+        // `detach` es necesario: `Subscription` se da de baja al caer, y este
+        // closure de arranque retorna en cuanto se monta la ventana, así que sin
+        // desligarla el handler se desregistraría antes de poder dispararse.
+        let presenter_id = presenter.window_id();
+        cx.on_window_closed(move |cx, window_id| {
+            if quits_app_on_close(window_id, presenter_id) {
+                cx.quit();
+            }
+        })
+        .detach();
 
         cx.activate(true);
     });
