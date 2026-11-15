@@ -17,7 +17,7 @@ use super::audience::AudienceView;
 use super::deck::Deck;
 use super::edit::TextEdit;
 use super::icons;
-use super::keys::{apply_nav, clamp_boundary};
+use super::keys::{apply_nav, clamp_boundary, quit_shortcut};
 use super::theme::{
     BORDER_WIDTH, CARET_WIDTH, CONTROL_HEIGHT, CONTROL_PADDING_X, FONT_FAMILY_MONO, FONT_SIZE_BODY,
     FONT_SIZE_CAPTION, FONT_SIZE_SUBTITLE, FONT_SIZE_TITLE, NOTES_PANEL_WIDTH, PANE_PADDING,
@@ -1946,7 +1946,21 @@ impl Render for PresenterView {
                                 icons::label(if dark { icons::MOON } else { icons::SUN }, "Tema"),
                                 &p,
                                 Deck::toggle_theme,
-                            )),
+                            ))
+                            // «Salir» no es una acción de `Deck`: lleva su propio
+                            // listener. El `debug_selector` es un hook de test
+                            // (no-op fuera de builds de test).
+                            .child(
+                                control_neutral("btn-salir", &p)
+                                    .child(icons::label(icons::SIGN_OUT, "Salir"))
+                                    .debug_selector(|| "btn-salir".to_string())
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _e, window, cx| {
+                                            this.exit_app(window, cx)
+                                        }),
+                                    ),
+                            ),
                     ),
             )
             .children(if compiling { None } else { error.clone() }.map(|e| {
@@ -2030,8 +2044,39 @@ impl Render for PresenterView {
 // ---------------------------------------------------------------------------
 
 impl PresenterView {
+    /// Sale de la aplicación: cierra la ventana del presentador **y** pide el
+    /// quit a la app.
+    ///
+    /// Única ruta de salida (botón «Salir» y `Ctrl+Q`), y consta de dos pasos:
+    ///
+    /// 1. `remove_window()` marca la ventana como cerrada; al final del ciclo de
+    ///    efectos GPUI notifica a los `window_closed_observers`. Eso apaga la
+    ///    proyección (el observer de [`Self::new`]) y es lo que el handler de
+    ///    `main.rs` convierte en `cx.quit()` (issue #42).
+    /// 2. `cx.quit()` pide la parada directamente, de modo que la salida **no
+    ///    depende** de que exista ese handler de `main.rs`: cualquier embedder
+    ///    que monte `PresenterView` sale igual, y ningún test del crate puede
+    ///    verificar el handler (vive fuera, en el binario).
+    ///
+    /// El orden es indiferente para la corrección —`remove_window` solo pone un
+    /// flag en la ventana y `App::quit` solo señala la parada al bucle de la
+    /// plataforma (`Platform::quit` → `signal.stop()` en Linux)— y ninguna de
+    /// las dos es bloqueante ni destructiva, así que no hay riesgo de panic
+    /// mientras seguimos dentro del despacho del evento. Se mantiene
+    /// `remove_window()` primero para que la notificación de cierre (y con ella
+    /// el apagado de la proyección) ocurra antes de pedir la parada. Ambas
+    /// llamadas son idempotentes: si el handler de `main.rs` vuelve a llamar a
+    /// `cx.quit()`, no pasa nada.
+    ///
+    /// Nota de test: en `TestPlatform` `Platform::quit` es un no-op, así que los
+    /// tests observan solo el paso 1 (la ventana se cierra).
+    fn exit_app(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.remove_window();
+        cx.quit();
+    }
+
     /// Reparte una pulsación: al editor si hay edición activa, a la navegación
-    /// si no.
+    /// si no. `Ctrl+Q` sale de la app en cualquiera de los dos modos.
     ///
     /// En modo edición solo se consume el evento cuando el editor lo gestiona;
     /// un carácter imprimible se deja propagar para que la plataforma lo
@@ -2039,6 +2084,14 @@ impl PresenterView {
     /// aquí lo duplicaría (ver `editor_command`).
     fn dispatch_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let editing = self.active_target(cx).is_some();
+        // Ctrl+Q sale de la app antes que nada: también durante una edición, y
+        // sin entregar el atajo al editor (no inserta texto ni se consume como
+        // comando de edición).
+        if quit_shortcut(&event.keystroke.key, event.keystroke.modifiers.control) {
+            self.exit_app(window, cx);
+            cx.stop_propagation();
+            return;
+        }
         // Esc: la proyección tiene prioridad sobre la edición.
         //
         // `stop_propagation` solo corta la cadena de handlers de esta ventana;
@@ -2646,7 +2699,7 @@ mod input_handler_tests {
     /// Crea un `PresenterView` con el editor `target` activo y un `TextEdit` con
     /// `text`, sobre un deck vacío y sin proyección (así el test no abre una
     /// segunda ventana de audiencia).
-    fn presenter_editing<'a>(
+    pub(super) fn presenter_editing<'a>(
         cx: &'a mut TestAppContext,
         target: EditorTarget,
         text: &str,
@@ -3269,7 +3322,11 @@ mod input_handler_tests {
     // -----------------------------------------------------------------------
 
     /// Evento tal y como lo entrega el backend para una tecla, `key_char` incluido.
-    fn key_down(key: &str, key_char: Option<&str>, modifiers: Modifiers) -> KeyDownEvent {
+    pub(super) fn key_down(
+        key: &str,
+        key_char: Option<&str>,
+        modifiers: Modifiers,
+    ) -> KeyDownEvent {
         KeyDownEvent {
             keystroke: Keystroke {
                 modifiers,
@@ -4537,6 +4594,190 @@ mod parity_tests {
         assert_eq!(heading_style(6), (FONT_SIZE_BODY, FontWeight::NORMAL));
         assert_eq!(heading_style(0), (FONT_SIZE_BODY, FontWeight::NORMAL));
         assert_eq!(heading_style(99), (FONT_SIZE_BODY, FontWeight::NORMAL));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Salida de la app: botón «Salir» y atajo Ctrl+Q (issue #46).
+//
+// `exit_app` cierra la ventana del presentador (paso 1) y pide `cx.quit()`
+// (paso 2), así que la salida ya no depende del handler de `main.rs`; ese
+// handler sigue existiendo como red de seguridad. En `TestPlatform`
+// `Platform::quit` es un no-op, de modo que el único efecto observable en test
+// es el del paso 1: los tests registran el mismo cableado que `main.rs` (con una
+// bandera en lugar de `cx.quit()`, igual que `window_close_tests`) y comprueban
+// que se dispara, que es la ruta de salida equivalente a que la app termine.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod exit_tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use super::input_handler_tests::{key_down, presenter_editing};
+    use super::*;
+    use crate::gpui_ui::quits_app_on_close;
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, WindowId};
+
+    /// Modificadores de `Ctrl+Q`.
+    fn ctrl() -> Modifiers {
+        Modifiers {
+            control: true,
+            ..Modifiers::default()
+        }
+    }
+
+    /// Registra un `on_window_closed` equivalente al de `main.rs` y devuelve la
+    /// bandera que se pone a `true` cuando se cierra la ventana `presenter_id`.
+    fn watch_close(cx: &mut VisualTestContext, presenter_id: WindowId) -> Rc<Cell<bool>> {
+        let closed = Rc::new(Cell::new(false));
+        let flag = Rc::clone(&closed);
+        cx.cx.update(|app| {
+            app.on_window_closed(move |_app, window_id| {
+                if quits_app_on_close(window_id, presenter_id) {
+                    flag.set(true);
+                }
+            })
+            .detach();
+        });
+        closed
+    }
+
+    #[gpui::test]
+    fn ctrl_q_closes_the_presenter_window(cx: &mut TestAppContext) {
+        let deck = cx.update(|app| app.new(|_| Deck::empty()));
+        let (view, cx) = cx.add_window_view(|window, cx| PresenterView::new(deck, window, cx));
+
+        let presenter_id = cx.update(|window, _| window.window_handle().window_id());
+        let closed = watch_close(cx, presenter_id);
+
+        view.update_in(cx, |view, window, cx| {
+            let event = key_down("q", Some("q"), ctrl());
+            view.dispatch_key(&event, window, cx);
+        });
+
+        cx.run_until_parked();
+        assert!(
+            closed.get(),
+            "Ctrl+Q debe cerrar la ventana del presentador (y con ella la app)"
+        );
+    }
+
+    #[gpui::test]
+    fn ctrl_q_closes_the_window_while_editing_a_note(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_editing(cx, EditorTarget::Note, "hola");
+        cx.run_until_parked();
+
+        let presenter_id = cx.update(|window, _| window.window_handle().window_id());
+        let closed = watch_close(cx, presenter_id);
+
+        // Keystroke real (`ctrl-q` parseado y despachado por la ventana), no una
+        // llamada directa a `dispatch_key`: así el test prueba de verdad que el
+        // atajo atraviesa el camino de la plataforma y no se lo queda el editor.
+        cx.simulate_keystrokes("ctrl-q");
+
+        // El atajo no se entrega al editor: ni inserta texto ni mueve el cursor.
+        // Se lee la vista sin ventana (la del presentador ya se cerró).
+        let (text, cursor) = view.read_with(&cx.cx, |view, _| {
+            let edit = view.note_edit.as_ref().expect("editor de la nota");
+            (edit.text.clone(), edit.cursor())
+        });
+        assert_eq!(text, "hola", "Ctrl+Q no inserta texto en la nota");
+        assert_eq!(cursor, 4, "Ctrl+Q no mueve el cursor");
+
+        cx.run_until_parked();
+        assert!(
+            closed.get(),
+            "Ctrl+Q debe cerrar la ventana también durante la edición"
+        );
+    }
+
+    #[gpui::test]
+    fn exit_button_closes_the_presenter_window(cx: &mut TestAppContext) {
+        let deck = cx.update(|app| app.new(|_| Deck::empty()));
+        let (_view, cx) = cx.add_window_view(|window, cx| PresenterView::new(deck, window, cx));
+
+        let presenter_id = cx.update(|window, _| window.window_handle().window_id());
+        let closed = watch_close(cx, presenter_id);
+
+        // El botón vive en la barra superior: se pulsa donde el último frame lo
+        // dibujó (`debug_selector("btn-salir")` en el propio botón).
+        //
+        // Solo `mouse_down`: el `mouse_up` de un `simulate_click` llegaría a una
+        // ventana ya cerrada (el handler quita la ventana al pulsar).
+        cx.run_until_parked();
+        let bounds = cx
+            .debug_bounds("btn-salir")
+            .expect("«Salir» se dibuja en la barra superior del presentador");
+        cx.simulate_mouse_down(bounds.center(), MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+
+        assert!(
+            closed.get(),
+            "pulsar «Salir» debe cerrar la ventana del presentador"
+        );
+    }
+
+    /// Escenario 2 de la spec: «el botón cierra la app con la proyección activa».
+    ///
+    /// Se abre la ventana de audiencia de verdad (mismo `open_audience` que usan
+    /// los tests de Esc), no un simple `deck.projection = true`: así se ejercita
+    /// el caso completo, con la segunda ventana viva y su `on_window_closed` de
+    /// sincronización montado.
+    #[gpui::test]
+    fn exit_button_closes_the_app_with_projection_active(cx: &mut TestAppContext) {
+        let deck = cx.update(|app| app.new(|_| Deck::empty()));
+        let (view, cx) = cx.add_window_view(|window, cx| PresenterView::new(deck, window, cx));
+
+        let presenter_id = cx.update(|window, _| window.window_handle().window_id());
+        let closed = watch_close(cx, presenter_id);
+
+        let audience_id = view.update_in(cx, |view, _window, cx| {
+            assert!(view.open_audience(cx), "la audiencia se abre");
+            view.deck.update(cx, |deck, cx| {
+                deck.projection = true;
+                cx.notify();
+            });
+            view.audience.expect("la audiencia se abrió").window_id()
+        });
+        cx.run_until_parked();
+        assert!(
+            cx.update(|_window, app| app.windows().iter().any(|w| w.window_id() == audience_id)),
+            "la audiencia está abierta cuando se pulsa «Salir»"
+        );
+
+        // Mismo clic headless que el escenario sin proyección: `debug_bounds` lee
+        // el frame del presentador (el `VisualTestContext` está atado a él), no el
+        // de la audiencia.
+        let bounds = cx
+            .debug_bounds("btn-salir")
+            .expect("«Salir» se dibuja en la barra superior del presentador");
+        cx.simulate_mouse_down(bounds.center(), MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+
+        assert!(
+            closed.get(),
+            "con proyección activa, «Salir» recorre la ruta de salida de la app \
+             (en `main.rs`: cierre del presentador → `cx.quit()`)"
+        );
+        // La ventana del presentador ya no existe, así que las comprobaciones
+        // finales usan el `TestAppContext` (sin ventana) en vez del
+        // `VisualTestContext`, que está atado a la ventana cerrada.
+        assert!(
+            cx.cx
+                .update(|app| app.windows().iter().all(|w| w.window_id() != presenter_id)),
+            "la ventana del presentador se cerró"
+        );
+        // Limitación del harness (documentada, no un fallo): `TestPlatform::quit`
+        // es un no-op, así que la ventana de audiencia no se destruye aquí. En
+        // producción `exit_app` → `App::quit` → `Platform::quit` →
+        // `signal.stop()` detiene el bucle de la plataforma y el proceso termina
+        // con la audiencia incluida; lo verificable en test es la ruta de salida
+        // (ventana del presentador cerrada + handler de `main.rs` disparado).
+        assert!(
+            cx.cx
+                .update(|app| app.windows().iter().any(|w| w.window_id() == audience_id)),
+            "la audiencia solo muere con el proceso (quit real), no en el harness"
+        );
     }
 }
 
