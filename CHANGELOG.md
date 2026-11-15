@@ -1,4 +1,21 @@
 # Changelog
+## [0.5.0] - 2026-11-15
+
+### Documentation
+
+- *(spec)* Documenta el botón «Salir» y el atajo Ctrl+Q
+
+### Features
+
+- *(ui)* Botón «Salir» y atajo Ctrl+Q para cerrar la app
+
+### Miscellaneous Tasks
+
+- *(spec)* Archiva el change boton-salir y el plan 009
+
+### Other
+
+- Actualiza rfd, fontdb, pulldown-cmark y rusqlite
 ## [0.4.0] - 2026-11-15
 
 ### Documentation
@@ -13,6 +30,7 @@
 ### Miscellaneous Tasks
 
 - *(spec)* Archiva el change arranque-solo-presentador y el plan 008
+- Release v0.4.0
 ## [0.3.0] - 2026-11-14
 
 ### Bug Fixes
