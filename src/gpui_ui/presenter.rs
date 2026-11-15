@@ -4539,3 +4539,79 @@ mod parity_tests {
         assert_eq!(heading_style(99), (FONT_SIZE_BODY, FontWeight::NORMAL));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Cierre de la ventana del presentador (issue #42, tarea 3.1).
+//
+// `main.rs` registra un `App::on_window_closed` que llama a `cx.quit()` cuando
+// la ventana cerrada es la del presentador; la decisión vive en el predicado
+// puro `quits_app_on_close` (testeado en `gpui_ui::tests`). Aquí se comprueba
+// el *wiring*: que cerrar la ventana del presentador dispara ese handler.
+//
+// El cierre nativo de GPUI termina en `Window::remove_window()`, que es lo que
+// provoca la notificación a los `window_closed_observers`. El `TestPlatform`
+// solo expone `TestWindow::simulate_close` de forma interna al crate `gpui`
+// (`pub(crate)`), así que el test provoca el mismo efecto llamando a
+// `remove_window` desde el contexto de la ventana.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod window_close_tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use super::*;
+    use crate::gpui_ui::quits_app_on_close;
+    use gpui::TestAppContext;
+
+    #[gpui::test]
+    fn closing_the_presenter_window_fires_the_close_handler(cx: &mut TestAppContext) {
+        let deck = cx.update(|app| app.new(|_| Deck::empty()));
+        let (_view, cx) = cx.add_window_view(|window, cx| PresenterView::new(deck, window, cx));
+
+        let presenter_id = cx.update(|window, _| window.window_handle().window_id());
+        // Ventana que no es la del presentador (p. ej. la de audiencia).
+        let other_id = gpui::WindowId::from(presenter_id.as_u64().wrapping_add(1));
+
+        // Mismo cableado que `main.rs`, con banderas en lugar de `cx.quit()`
+        // (que en `TestPlatform` es un no-op y no sería observable).
+        let events = Rc::new(Cell::new(0usize));
+        let quits = Rc::new(Cell::new(false));
+        let other_quits = Rc::new(Cell::new(false));
+        {
+            let events = Rc::clone(&events);
+            let quits = Rc::clone(&quits);
+            let other_quits = Rc::clone(&other_quits);
+            cx.cx.update(|app| {
+                app.on_window_closed(move |_app, window_id| {
+                    // Prueba de que el observer se disparó de verdad.
+                    events.set(events.get() + 1);
+                    if quits_app_on_close(window_id, presenter_id) {
+                        quits.set(true);
+                    }
+                    if quits_app_on_close(window_id, other_id) {
+                        other_quits.set(true);
+                    }
+                })
+                .detach();
+            });
+        }
+
+        // Cierre de la ventana del presentador (mismo mecanismo que el nativo).
+        cx.update(|window, _| window.remove_window());
+        cx.run_until_parked();
+
+        assert_eq!(
+            events.get(),
+            1,
+            "el observer de cierre debe dispararse una vez"
+        );
+        assert!(
+            quits.get(),
+            "cerrar la ventana del presentador debe disparar el cierre de la app"
+        );
+        assert!(
+            !other_quits.get(),
+            "el cierre no debe atribuirse a otra ventana (la audiencia no cierra la app)"
+        );
+    }
+}
