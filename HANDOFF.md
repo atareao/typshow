@@ -2,9 +2,11 @@
 
 ## Estado actual
 
-Cambios del issue #42 **implementados y verificados, sin commitear** en `development`.
-Código OK, `cargo test` 188 verdes, clippy (`-D warnings`) y fmt limpios, y change
-OpenSpec `arranque-solo-presentador` validado. Falta rama/commit/PR.
+Issue #42 **implementado, verificado y mergeado** a `development` (PR #43). El change
+OpenSpec está archivado (`openspec/changes/archive/2026-11-15-arranque-solo-presentador/`)
+y `plans/PLAN-008-ARCHIVED.md`. `cargo test` 188 verdes, clippy (`-D warnings`) y fmt
+limpios. Pendiente **solo**: release patch (PR `development` → `main`) y la verificación
+manual del cierre con la proyección activa.
 
 ## Completado (sesión 2026-11-15)
 
@@ -16,16 +18,14 @@ OpenSpec `arranque-solo-presentador` validado. Falta rama/commit/PR.
   (cerrar el presentador cierra la app entera).
 - Tests nuevos: predicado (`gpui_ui::tests`) y wiring headless
   (`presenter::window_close_tests`).
-- Artefactos: issue #42, `plans/PLAN-008.md`, `docs/arranque-solo-presentador.md`
-  y change OpenSpec `openspec/changes/arranque-solo-presentador/`.
+- Artefactos: issue #42, PR #43, `plans/PLAN-008-ARCHIVED.md`,
+  `docs/arranque-solo-presentador.md` y el change archivado en
+  `openspec/changes/archive/2026-11-15-arranque-solo-presentador/`.
 
 ## Tarea pendiente (relevo)
 
 - Verificar manualmente el cierre con el presentador y la **proyección activa**.
-- Crear rama `feature/arranque-solo-presentador` desde `development`, commit
-  (gitmoji) y PR que cierre el issue #42.
-- Tras el merge: `openspec archive arranque-solo-presentador`, marcar `tasks.md`
-  4.3 y preparar release (patch).
+- Preparar release patch: PR `development` → `main` (dispara `release-prepare.yml`).
 
 ## Follow-ups no bloqueantes
 
