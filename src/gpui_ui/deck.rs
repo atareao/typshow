@@ -53,7 +53,12 @@ pub struct Deck {
 }
 
 impl Deck {
-    /// Deck vacío sin documento.
+    /// Deck vacío y sin documento.
+    ///
+    /// Es un deck «puro»: `theme_path` queda a `None`, así que no lee ni
+    /// persiste la preferencia de tema en disco. Pensado para tests y para
+    /// construir decks que luego se configuran a mano. Para el arranque real
+    /// sin `.typ` usa [`Deck::no_document`], que sí cablea el tema guardado.
     pub fn empty() -> Self {
         Self {
             page: 0,
@@ -66,7 +71,7 @@ impl Deck {
             typ_content: None,
             notes: Notes::new(),
             notes_visible: true,
-            projection: true,
+            projection: false,
             doc: None,
             cache: HashMap::new(),
             cache_order: VecDeque::new(),
@@ -75,9 +80,26 @@ impl Deck {
         }
     }
 
-    /// Deck con un mensaje de error.
-    pub fn with_error(msg: impl Into<String>) -> Self {
+    /// Aplica la preferencia de tema guardada en `theme_path` (si la hay).
+    fn apply_saved_theme(&mut self, theme_path: Option<PathBuf>) {
+        self.theme_path = theme_path;
+        self.dark = self
+            .theme_path
+            .as_deref()
+            .and_then(config::load_theme_from)
+            .unwrap_or(false);
+    }
+
+    /// Deck sin documento (arranque sin `.typ`), aplicando la preferencia de tema
+    /// guardada y mostrando `msg` como error/estado.
+    pub fn no_document(msg: impl Into<String>) -> Self {
+        Self::no_document_with(msg, config::theme_path())
+    }
+
+    /// Igual que `no_document` con la ruta de tema inyectada (tests).
+    fn no_document_with(msg: impl Into<String>, theme_path: Option<PathBuf>) -> Self {
         let mut deck = Self::empty();
+        deck.apply_saved_theme(theme_path);
         deck.error = Some(msg.into());
         deck
     }
@@ -92,12 +114,7 @@ impl Deck {
     /// Igual que `load` pero con la ruta de configuración inyectada (tests).
     fn load_with(path: &str, theme_path: Option<PathBuf>) -> Self {
         let mut deck = Self::empty();
-        deck.theme_path = theme_path;
-        deck.dark = deck
-            .theme_path
-            .as_deref()
-            .and_then(config::load_theme_from)
-            .unwrap_or(false);
+        deck.apply_saved_theme(theme_path);
         // `open_file` ya deja el mensaje de error en el deck si falla.
         let _ = deck.open_file(path);
         deck
@@ -594,6 +611,51 @@ mod tests {
         let _ = std::fs::remove_file(&typ);
         let _ = std::fs::remove_file(&theme);
         cleanup_db(&typ);
+    }
+
+    #[test]
+    fn empty_starts_without_projection() {
+        assert!(!Deck::empty().projection, "el arranque no debe proyectar");
+    }
+
+    #[test]
+    fn no_document_loads_saved_theme() {
+        let theme = std::env::temp_dir().join("typshow_deck_no_doc_saved.conf");
+        std::fs::write(&theme, "dark\n").unwrap();
+
+        let d = Deck::no_document_with("sin documento", Some(theme.clone()));
+        assert!(d.dark, "debe aplicarse la preferencia de tema guardada");
+        assert_eq!(d.error.as_deref(), Some("sin documento"));
+        assert_eq!(d.total, 0);
+        assert!(
+            !d.projection,
+            "un arranque sin documento no debe abrir la audiencia"
+        );
+
+        let _ = std::fs::remove_file(&theme);
+    }
+
+    #[test]
+    fn no_document_persists_theme() {
+        let theme = std::env::temp_dir().join("typshow_deck_no_doc_persist.conf");
+        // Precondición determinista: sin preferencia guardada antes de arrancar.
+        let _ = std::fs::remove_file(&theme);
+
+        let mut d = Deck::no_document_with("sin documento", Some(theme.clone()));
+        assert!(!d.dark, "sin preferencia guardada el tema debe ser claro");
+
+        d.toggle_theme();
+        assert!(d.dark, "tras alternar el tema debe ser oscuro");
+        assert_eq!(
+            config::load_theme_from(&theme),
+            Some(true),
+            "la preferencia debe quedar en disco aunque no haya documento"
+        );
+
+        let d2 = Deck::no_document_with("sin documento", Some(theme.clone()));
+        assert!(d2.dark, "al reabrir sin documento debe recuperarse el tema");
+
+        let _ = std::fs::remove_file(&theme);
     }
 
     #[test]
