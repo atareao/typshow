@@ -25,4 +25,4 @@
 - [x] 5.1 `cargo fmt --all -- --check` y clippy (`--all-targets -D warnings`) limpios.
 - [x] 5.2 `cargo test` en verde (sin regresiones en los tests de `keys`, `icons` y `presenter`).
 - [x] 5.3 Verificación manual en sesión gráfica: «Salir» cierra toda la app; `Ctrl+Q` cierra la app con y sin edición de nota en curso.
-- [ ] 5.4 Crear/actualizar `docs/boton-salir.md` y archivar el change (`openspec archive`) al mergear el issue #46.
+- [x] 5.4 Crear/actualizar `docs/boton-salir.md` y archivar el change (`openspec archive`) al mergear el issue #46.
