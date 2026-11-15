@@ -6,9 +6,10 @@
 //! GPUI despacha los keybindings *antes* que `on_key_down`, así que un atajo
 //! global secuestraría la escritura; aquí decidimos según el modo.
 //!
-//! Contenido: mapeo de teclas a acciones de **navegación** sobre `Deck` y los
-//! helpers puros de **frontera de carácter** (offsets en bytes) que consume el
-//! editor de `edit.rs`.
+//! Contenido: mapeo de teclas a acciones de **navegación** sobre `Deck`, el
+//! predicado de **salida de la app** (`Ctrl+Q`) y los helpers puros de
+//! **frontera de carácter** (offsets en bytes) que consume el editor de
+//! `edit.rs`.
 
 use gpui::{AppContext, Entity, KeyDownEvent};
 
@@ -66,6 +67,22 @@ pub fn nav_action_for(key: &str, shift: bool) -> Option<fn(&mut Deck)> {
     }
 }
 
+/// `true` si la tecla corresponde al atajo de salida de la app (`Ctrl+Q`).
+///
+/// Es un predicado puro para poder testearlo sin GPUI. En GPUI `keystroke.key`
+/// llega en minúsculas para letras (`"q"`).
+///
+/// Solo mira `control`: **ignora Shift y el resto de modificadores**, de modo
+/// que `Ctrl+Shift+Q` (o `Ctrl+Alt+Q`) también sale. Es deliberado: es un atajo
+/// de escape que no colisiona con nada (en modo edición `editor_command` trata
+/// todo `Ctrl+<letra>` que no sea a/c/x/v como `Ignore`), y exigir `!shift`
+/// obligaría a decidir además qué hacer con Alt/Super para no abrir la puerta a
+/// combinaciones que el usuario deba memorizar. `!control` sigue siendo
+/// obligatorio: `q` a secas es texto para la nota.
+pub fn quit_shortcut(key: &str, control: bool) -> bool {
+    control && key == "q"
+}
+
 /// Acción de navegación asociada a un evento de tecla, si la hay.
 fn nav_action(event: &KeyDownEvent) -> Option<fn(&mut Deck)> {
     nav_action_for(&event.keystroke.key, event.keystroke.modifiers.shift)
@@ -86,6 +103,7 @@ pub fn apply_nav<C: AppContext>(deck: &Entity<Deck>, event: &KeyDownEvent, cx: &
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::Keystroke;
 
     #[test]
     fn navigation_keys_map() {
@@ -96,6 +114,29 @@ mod tests {
         assert!(nav_action_for("t", false).is_some());
         assert!(nav_action_for("q", false).is_none(), "tecla no mapeada");
         assert!(nav_action_for("F5", false).is_none());
+    }
+
+    #[test]
+    fn quit_shortcut_matches_ctrl_q() {
+        assert!(quit_shortcut("q", true), "Ctrl+Q debe salir");
+        assert!(!quit_shortcut("q", false), "q sin Ctrl no sale");
+        assert!(!quit_shortcut("w", true), "Ctrl+W no es el atajo");
+        assert!(!quit_shortcut("t", true), "Ctrl+T no es el atajo");
+    }
+
+    #[test]
+    fn quit_shortcut_ignores_shift_on_purpose() {
+        // Keystroke real de `Ctrl+Shift+Q`: el predicado no recibe `shift`, así
+        // que esa combinación sale igual que `Ctrl+Q`. La decisión (ignorar
+        // Shift y demás modificadores) está documentada en `quit_shortcut`; el
+        // aserto fija que es intencionada y no un olvido.
+        let keystroke = Keystroke::parse("ctrl-shift-q").expect("keystroke válido");
+        assert!(keystroke.modifiers.control, "el keystroke trae Control");
+        assert!(keystroke.modifiers.shift, "el keystroke trae Shift");
+        assert!(
+            quit_shortcut(&keystroke.key, keystroke.modifiers.control),
+            "Ctrl+Shift+Q también sale: Shift se ignora a propósito"
+        );
     }
 
     #[test]
