@@ -1,4 +1,18 @@
 # Changelog
+## [0.4.0] - 2026-11-15
+
+### Documentation
+
+- *(release)* Documenta la 0.3.0 y actualiza el handoff
+- *(spec)* Documenta y especifica el arranque con solo presentador
+
+### Features
+
+- *(arranque)* Abre solo el presentador, cierra la app al cerrarlo y persiste el tema
+
+### Miscellaneous Tasks
+
+- *(spec)* Archiva el change arranque-solo-presentador y el plan 008
 ## [0.3.0] - 2026-11-14
 
 ### Bug Fixes
@@ -17,6 +31,7 @@
 ### Miscellaneous Tasks
 
 - *(openspec)* Archiva los changes persistir-tema, markdown-cursiva y esc-cierra-proyeccion
+- Release v0.3.0
 ## [0.2.1] - 2026-11-13
 
 ### Bug Fixes
