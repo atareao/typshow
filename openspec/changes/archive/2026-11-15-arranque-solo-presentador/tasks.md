@@ -19,4 +19,4 @@
 
 - [x] 4.1 `cargo fmt --all -- --check` y clippy (`--all-targets -D warnings`) limpios.
 - [x] 4.2 `cargo test` en verde.
-- [ ] 4.3 Crear/actualizar `docs/arranque-solo-presentador.md` y archivar el change (`openspec archive`) al mergear el issue #42.
+- [x] 4.3 Crear/actualizar `docs/arranque-solo-presentador.md` y archivar el change (`openspec archive`) al mergear el issue #42.

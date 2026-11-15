@@ -91,14 +91,21 @@ La app SHALL permitir abrir un fichero `.typ` desde la interfaz.
 
 ### Requirement: Toggle de proyección
 
-La app SHALL permitir mostrar u ocultar la ventana de audiencia. Además, `Esc` SHALL cerrar
-la proyección siempre que esté activa, con independencia de que haya una edición de notas en
-curso.
+La app SHALL permitir mostrar u ocultar la ventana de audiencia. La proyección
+SHALL arrancar inactiva, de modo que un arranque sin documento abra únicamente la
+ventana del presentador. Además, `Esc` SHALL cerrar la proyección siempre que esté
+activa, con independencia de que haya una edición de notas en curso.
 
 #### Scenario: Alternar proyección
 
 - **WHEN** el usuario activa/desactiva la proyección
 - **THEN** la ventana de audiencia se abre o se cierra en consecuencia
+
+#### Scenario: Arranque sin documento solo abre el presentador
+
+- **GIVEN** la app arranca sin documento (p. ej. lanzada sin argumento de fichero)
+- **WHEN** la ventana del presentador se muestra
+- **THEN** la proyección está inactiva y NO se abre la ventana de audiencia
 
 #### Scenario: Esc cierra la proyección sin edición
 
@@ -220,7 +227,8 @@ cortar la selección al portapapeles.
 ### Requirement: Tema claro/oscuro estilo Adwaita
 
 La app SHALL ofrecer un tema claro y uno oscuro con estética GTK4/Adwaita, y SHALL
-recordar la última preferencia de tema elegida por el usuario entre sesiones.
+recordar la última preferencia de tema elegida por el usuario entre sesiones,
+también cuando la app se arranca sin documento.
 
 #### Scenario: Alternar tema
 
@@ -231,6 +239,12 @@ recordar la última preferencia de tema elegida por el usuario entre sesiones.
 
 - **WHEN** el usuario elige un tema (claro u oscuro) y vuelve a abrir la app
 - **THEN** la app arranca con ese mismo tema
+
+#### Scenario: Persistencia del tema sin documento
+
+- **GIVEN** la app se arranca sin documento
+- **WHEN** el usuario alterna el tema y vuelve a abrir la app sin documento
+- **THEN** la app arranca con la preferencia de tema guardada
 
 #### Scenario: Sin preferencia guardada
 
@@ -251,3 +265,21 @@ Al completarse la migración, GPUI SHALL ser el framework de UI por defecto de T
 - **WHEN** la migración finaliza
 - **THEN** el binario `typshow` usa GPUI y `egui`/`eframe` se han retirado de las
   dependencias
+
+### Requirement: Cierre de la aplicación con el presentador
+
+Cerrar la ventana del presentador SHALL cerrar toda la aplicación, incluida la
+ventana de audiencia si estuviera abierta. El usuario MUST NOT tener que cerrar
+cada ventana manualmente.
+
+#### Scenario: Cerrar el presentador cierra la app
+
+- **GIVEN** la app está abierta con la ventana del presentador
+- **WHEN** el usuario cierra la ventana del presentador
+- **THEN** la aplicación termina por completo
+
+#### Scenario: Cerrar el presentador con la proyección activa
+
+- **GIVEN** la proyección está activa y la ventana de audiencia está abierta
+- **WHEN** el usuario cierra la ventana del presentador
+- **THEN** se cierran también la ventana de audiencia y la aplicación por completo
