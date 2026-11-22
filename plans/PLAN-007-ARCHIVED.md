@@ -2,7 +2,7 @@
 
 - **Issue:** #34
 - **Rama:** `fix/esc-cierra-proyeccion`
-- **Estado:** implementado, pendiente de merge
+- **Estado:** implementado y mergeado
 
 ## Objetivo
 
@@ -22,4 +22,4 @@ mientras se edita una nota.
 - [x] 2. Implementación (GREEN): `EscAction::CancelEdit` + nueva `esc_action` + `dispatch_key`.
 - [x] 3. Auditoría `@rust-reviewer`: aprobado; nit del modelo del editor aplicado.
 - [x] 4. `cargo fmt` y clippy 1.100 limpios; `cargo test` en verde.
-- [ ] 5. Archivar el change OpenSpec al mergear.
+- [x] 5. Change OpenSpec archivado al mergear.
