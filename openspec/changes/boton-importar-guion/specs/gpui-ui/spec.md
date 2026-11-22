@@ -5,7 +5,8 @@
 El panel de notas SHALL ofrecer un botón **«Importar guion»**, visible cuando hay un
 documento `.typ` cargado. Al pulsarlo SHALL abrirse un diálogo de fichero filtrado a `.md`
 para elegir el guion; al elegir uno SHALL importarse en el `.typ` abierto (embebido + refresco
-de notas) y SHALL mostrarse un mensaje con el resultado. Sin documento cargado, el botón
+de notas) y SHALL mostrarse un **aviso efímero** con el resultado. El botón SHALL mostrarse
+con icono y etiqueta, como el resto de acciones del panel. Sin documento cargado, el botón
 MUST NOT abrir el diálogo y SHALL mostrarse un error. Mientras haya un diálogo en curso
 MUST NOT abrirse otro (sin reentradas).
 
@@ -37,4 +38,4 @@ MUST NOT abrirse otro (sin reentradas).
 
 - **GIVEN** un guion importado con éxito
 - **WHEN** termina la importación
-- **THEN** se muestra el número de bloques importados
+- **THEN** se muestra, de forma efímera, el número de bloques importados

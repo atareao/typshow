@@ -15,9 +15,9 @@
 
 ## 2. Botón y diálogo (RED → GREEN) — `presenter.rs`
 
-- [ ] 2.1 Botón `notes-importar-guion` en `notes_panel` (visible con documento), con icono y etiqueta.
+- [ ] 2.1 Botón `notes-importar-guion` en `notes_panel` (visible con documento), con **icono + etiqueta** como el resto.
 - [ ] 2.2 Método `import_guion_dialog` con `rfd::AsyncFileDialog` filtrado a `.md` y guardia de reentrada (patrón de `open_file_dialog`).
-- [ ] 2.3 Estado de feedback (`notes_status`) mostrado en el panel; error si no hay documento o falla la E/S.
+- [ ] 2.3 Aviso **efímero** (`notes_status` con temporizador) en el panel; error si no hay documento o falla la E/S.
 - [ ] 2.4 GREEN: `cargo test` + `cargo check` en verde.
 
 ## 3. Cierre
