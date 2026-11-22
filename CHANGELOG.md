@@ -1,4 +1,40 @@
 # Changelog
+## [0.6.0] - 2026-11-22
+
+### Bug Fixes
+
+- *(guion)* Ignora secciones '##' dentro de bloques de código (#63)
+
+### Documentation
+
+- *(handoff)* Refleja la release v0.5.0 y el cierre de #46
+- *(handoff)* Relevo de la sesión — guion embebido (#52, PR #53)
+- *(spec)* Propuesta del panel de notas redimensionable (#55)
+- *(handoff)* Relevo — #52 y #55 cerradas, pendiente #3
+- *(spec)* Propuesta del mapeo por rango de guiones de grano grueso (#59)
+- *(handoff)* Relevo — #59 (mapeo por rango) cerrada
+- *(spec)* Fix de detección de `##` dentro de bloques de código (#63)
+- *(handoff)* Relevo — housekeeping hecho y #63 (fences) cerrado
+- *(spec)* Propuesta del botón «Importar guion» en el panel de notas (#67)
+- *(spec)* Botón con icono+etiqueta y aviso efímero (#67)
+- *(handoff)* Relevo — botón «Importar guion» entregado (#67)
+
+### Features
+
+- *(notas)* Guion embebido en el .typ como notas del presentador
+- *(presentador)* Panel de notas redimensionable con persistencia (#55)
+- *(guion)* Mapeo por rango para guiones de grano grueso (#59)
+- *(ui)* Botón «Importar guion» en el panel de notas (#67)
+
+### Miscellaneous Tasks
+
+- *(spec)* Archiva el change guion-embebido-en-typ y el plan 010
+- *(spec)* Archiva el change notas-redimensionable y el plan 011
+- *(spec)* Archiva el change mapeo-rango-guion y el plan 012
+- *(spec)* Archiva el change fix-secciones-codigo y el plan 013
+- *(spec)* Archiva el change boton-importar-guion y el plan 014
+- *(docs)* Cierra la verificación manual del botón «Importar guion» (#67)
+- *(plans)* Archiva los planes 005, 006 y 007 (completados)
 ## [0.5.0] - 2026-11-15
 
 ### Documentation
@@ -12,6 +48,7 @@
 ### Miscellaneous Tasks
 
 - *(spec)* Archiva el change boton-salir y el plan 009
+- Release v0.5.0
 
 ### Other
 
