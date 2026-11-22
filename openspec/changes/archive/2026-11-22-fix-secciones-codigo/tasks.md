@@ -17,4 +17,4 @@
 - [x] 3.1 Auditoría `@rust-reviewer`: APROBADA (3 nits menores documentados).
 - [x] 3.2 `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`.
 - [x] 3.3 Re-ejecutado sobre la 807: 7 bloques con cuerpo; 15/15 escaletas correctas.
-- [ ] 3.4 Doc (`docs/`) y archivar el change al mergear.
+- [x] 3.4 `docs/fix-secciones-codigo.md` creada; change archivado al mergear (PR #64).
