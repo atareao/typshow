@@ -1,72 +1,34 @@
-# HANDOFF — Typshow
+# Handoff — typshow — 2026-11-22
 
-## Estado actual
+## Objetivo
+Cerrar la línea de trabajo inmediata (hecho) y arrancar la siguiente: **decidir la estrategia del punto #3** (importar más episodios al guion embebido).
 
-Rama `feature/guion-embebido-en-typ` con **PR #53** abierta a `development`
-(pendiente de merge). `cargo test` 228 lib + 3 integración verdes, clippy
-(`-D warnings`) y fmt limpios. Auditoría `@rust-reviewer`: APROBADO.
+## Estado
+- **Completado y mergeado en `development`:**
+  - #52 «Guion embebido en el `.typ` como notas del presentador» — PR #53 (`69bc960`), change archivado (PR #54). Issue #52 **cerrado**. Doc `docs/guion-embebido.md`.
+  - #55 «Panel de notas redimensionable (asa, ancho mín/máx, persistencia)» — PR #56 (`55e1cbc`), change archivado (PR #57, `d86e321`). Issue #55 **cerrado**. Plan `plans/PLAN-011-ARCHIVED.md`, doc `docs/notas-redimensionable.md`.
+- `development` al día (`d86e321`). Árbol limpio. Sin ramas feature/chore colgando.
+- Verificación: `cargo test` 241 lib + 3 integración; `clippy -D warnings` y `fmt` limpios. Auditoría `@rust-reviewer` APROBADA.
 
-## Completado (sesión 2026-11-22)
+## Pendiente
+1. **Decidir punto #3** (mejorar el embedding para importar más episodios): A (match por título) / B (mapeo por rango, **recomendada**) / C (guion global). Requiere issue + OpenSpec antes de código.
+2. **Housekeeping:** quedan issues antiguos abiertos que parecen ya implementados — revisar y cerrar si procede: #46, #42, #35, #34, #33 (hay docs en `docs/`).
 
-### Issue #52 — Guion embebido en el `.typ` como notas del presentador
-- Bloques `// >>> typshow:notes` … `// >>> typshow:notes:end`, invisibles en el PDF
-  (Typst no renderiza comentarios) y visibles solo en typshow.
-- `notes_db.rs`: parser posicional (anclaje por `EmbeddedBlock::heading_line`),
-  sembrado desde bloques con *fallback*, esquema `source_hash` (FNV-1a 64) +
-  `edited`/`heading_edited`, `sync_from_blocks` selectivo no destructivo,
-  `export_to_typ`/`render_exported_typ`, conversor `embed_script_into_typ`.
-- `notes.rs`: `reimport` sin `clear_all`; `main.rs`: `typshow guion-embed <guion.md> <pres.typ>`.
-- UI: `Deck::export_notes` + botón «Exportar» (`icons::UPLOAD_SIMPLE`); `deck::reimport_notes`
-  guarda la edición en curso.
-- 25+11 tests nuevos, incluido uno pixel a pixel de que el bloque no altera el PDF.
-- Spec `openspec/changes/guion-embebido-en-typ/` · Plan `plans/PLAN-010.md` ·
-  Doc `docs/guion-embebido.md`.
+## Punto de partida
+```bash
+git checkout development && git pull origin development
+# siguiente feature:
+#   gh issue create ...   # el issue es el punto de entrada
+#   openspec new change <feature>
+#   git checkout -b feature/<nombre> development
+# verificación:
+cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check
+```
 
-### Completado (sesión 2026-11-15)
+## Metodología / reglas
+SDD (OpenSpec) + TDD: issue como punto de entrada → `openspec/changes/<feature>/` → aprobar spec → RED/GREEN/REFACTOR → `openspec archive` al mergear. Rama `feature/*` desde `development`; PR a `development`; commits conventional + gitmoji. Nunca editar en `main`/`development` (los archivados van por rama `chore/` + PR). Plan en `plans/PLAN-<NNN>.md` (siguiente libre: **012**). Doc de feature en `docs/<feature>.md`.
 
-### Issue #42 — arranque solo con el presentador, cierre conjunto y tema
-- `Deck::empty()` → `projection: false`; `Deck::no_document()` cablea el tema;
-  `main.rs` `on_window_closed` → `quits_app_on_close` → `cx.quit()`. (Release v0.4.0.)
-
-### Issue #46 — botón «Salir» y atajo Ctrl+Q
-- `keys::quit_shortcut(key, control)` (predicado puro; ignora Shift/Alt/Super a propósito).
-- `icons::SIGN_OUT` = `'\u{E42A}'` (en `ALL` y tabla dorada).
-- `PresenterView::exit_app` = `window.remove_window()` + `cx.quit()`; botón `btn-salir`
-  en la barra superior; `dispatch_key` gestiona `Ctrl+Q` antes de editar/navegar.
-- Tests headless: Ctrl+Q, Ctrl+Q en edición, y clic del botón con proyección activa.
-
-### ⬆️ Dependencias actualizadas
-- `rfd` 0.15.4 → 0.18.0, `fontdb` 0.23.0 → 0.24.0, `pulldown-cmark` 0.12.2 → 0.13.6,
-  `rusqlite` 0.32.1 → 0.42.0 (bundled). Sin cambios de código. `gpui` sin cambio de rev.
-
-### Release
-- **v0.5.0** publicada (PR #50 `development` → `main`; incluye #46 y las deps).
-
-## Próximo / tarea pendiente
-
-- **PR #53**: verificación manual en GUI sobre el episodio real (PLAN-010 §7.3) y
-  `openspec archive guion-embebido-en-typ` al mergear.
-- Probar de verdad el guion embebido en el episodio «El día que decidí montar mi red
-  privada» (copias ya generadas en `/tmp/opencode/e2e/`).
-
-## Follow-ups no bloqueantes
-
-- Editor: undo/redo, navegación por palabras, panel de notas redimensionable.
-- Rama `feature/sync-renderer` (1 commit, sin PR): decidir PR o borrar.
-- Change OpenSpec `gpui-spike` sigue activo (spike, no archivado).
-- Valorar si `Notes::set_heading` (sin llamantes tras `save_user_heading`) sigue en la API pública.
-- `Ctrl+Q` solo en el presentador; valorar extenderlo a la ventana de audiencia.
-- `fontdb` va duplicado en el binario (0.24 directa + 0.23 transitiva de
-  `cosmic-text`/`typst-library`); se resolverá cuando esas crates suban.
-
-## Notas de reproducción / entorno
-
-- Lanzar: `target/debug/typshow <path.typ>` o sin argumento (solo presentador).
-- Conversor: `target/debug/typshow guion-embed <guion.md> <presentacion.typ>` (idempotente).
-- `ydotool key` usa **keycodes numéricos** (Esc=1, t=20, q=16, ctrl=29).
-  `Ctrl+Q` = `ydotool key 29:1 16:1 16:0 29:0`. El ratón (`mousemove`/`click`) NO
-  funciona en esta sesión.
-- Captura: `grim -o DP-1 <png>`. Overview de Niri: `niri msg action toggle-overview`.
-- `app_id`: presentador `com.atareao.typshow.presenter`, audiencia
-  `com.atareao.typshow.audience`.
-- CI clippy = **1.100.0**: `rustup run 1.100.0 cargo clippy --all-targets -- -D warnings`.
+## Riesgos y notas
+- Los ~26 episodios con guion de grano grueso **no** casan 1:1; solo 8 sí (`de-huggingface…`, `docker-no-es-podman-rootless`, `el-dia…`, `el-self-hosting…`, `github-a-gitea…`, `herramientas-para-valet`, `que-tu-ia-te-dibuje…`, `tu-nube-es-tuya…`). Recomendado prototipo de B sobre un episodio de grano grueso.
+- Config: rama de `~/.config/opencode` **sin push** (gitea); `~/.agents` es repo local.
+- `.typshow.db` sidecar del episodio `el-dia…` ya sembrado; copia con guion embebido en la carpeta del episodio.
