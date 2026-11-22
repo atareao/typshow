@@ -18,9 +18,9 @@ las notas, preservando las editadas a mano.
 
 ## Tareas (TDD, espejo de tasks.md)
 
-- [ ] 1. `Deck::import_guion` + tests (embebe+reimporta, preserva editadas, sin bloques, idempotencia, sin documento).
-- [ ] 2. Botón + diálogo + feedback en `presenter.rs`.
-- [ ] 3. Auditoría, fmt/clippy/test, verificación manual con un guion real, doc y archivado.
+- [x] 1. `Deck::import_guion` + tests (embebe+reimporta, preserva editadas, sin bloques, idempotencia, sin documento).
+- [x] 2. Botón + diálogo + feedback en `presenter.rs`.
+- [x] 3. Auditoría APROBADA, fmt/clippy/test limpios, doc y archivado. Verificación manual UI pendiente del usuario.
 
 ## Verificación
 
@@ -30,4 +30,4 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --
 
 ## Estado
 
-- [ ] Pendiente de aprobación del spec por el usuario (fase SDD).
+- [x] Spec aprobado (icono+etiqueta y aviso efímero).
