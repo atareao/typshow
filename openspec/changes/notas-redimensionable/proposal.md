@@ -23,8 +23,9 @@ entre sesiones** — igual que ya persiste el tema (fichero `<config_dir>/theme`
   al arrastrar se recalcula el ancho en vivo (`notes_width_after_drag(start, dx)`), y al
   soltar se **persiste**.
 - La **persistencia** replica el patrón del tema en `src/gpui_ui/config.rs`:
-  `load_notes_width_from` / `save_notes_width_to` sobre `<config_dir>/notes_width`, con
-  valores inválidos o fuera de rango saneados al cargar.
+  `load_notes_width_from` / `save_notes_width_to` sobre `<config_dir>/notes_width`: los
+  valores ausentes, no numéricos o **fuera de rango** ⇒ ancho por defecto al cargar; el
+  guardado recorta (sanea) al rango válido antes de escribir.
 - **Feedback de cursor** de redimensionado mientras se arrastra el asa.
 
 ## Capabilities

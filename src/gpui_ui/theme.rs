@@ -52,6 +52,10 @@ pub const WINDOW_PADDING: f32 = SPACING_MD;
 pub const PANE_PADDING: f32 = SPACING_XL;
 /// Ancho del panel lateral de notas.
 pub const NOTES_PANEL_WIDTH: f32 = 320.;
+/// Ancho mínimo al que se puede reducir el panel lateral de notas arrastrando el asa.
+pub const NOTES_PANEL_MIN_WIDTH: f32 = 200.;
+/// Ancho máximo al que se puede ampliar el panel lateral de notas arrastrando el asa.
+pub const NOTES_PANEL_MAX_WIDTH: f32 = 640.;
 
 /// Grosor de bordes, separadores y subrayados (`1px`).
 pub const BORDER_WIDTH: f32 = 1.;
@@ -407,5 +411,14 @@ mod tests {
         assert_eq!(PANE_PADDING, SPACING_XL);
         assert_eq!(WINDOW_PADDING, SPACING_MD);
         assert_eq!(NOTES_PANEL_WIDTH, 320.0);
+    }
+
+    #[test]
+    fn limites_ancho_notas() {
+        assert_eq!(NOTES_PANEL_MIN_WIDTH, 200.0);
+        assert_eq!(NOTES_PANEL_MAX_WIDTH, 640.0);
+        // El ancho por defecto queda estrictamente dentro de los límites.
+        const { assert!(NOTES_PANEL_MIN_WIDTH < NOTES_PANEL_WIDTH) };
+        const { assert!(NOTES_PANEL_WIDTH < NOTES_PANEL_MAX_WIDTH) };
     }
 }
