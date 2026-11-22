@@ -48,4 +48,4 @@
 - [x] 7.1 Auditoría `@rust-reviewer`: APROBADA (1ª ronda: 1 mayor + 3 menores + bug de cuerpo cazado en 7.3; remediados y re-auditados).
 - [x] 7.2 `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings` y `cargo test` limpios.
 - [x] 7.3 Verificación real sobre `episodio-812-escaleta-wave-terminal.md` + su `.typ`: 7 bloques embebidos, cuerpo visible, idempotente.
-- [ ] 7.4 `docs/mapeo-rango-guion.md` y archivar el change al mergear.
+- [x] 7.4 `docs/mapeo-rango-guion.md` creada; change archivado al mergear (PR #60).
