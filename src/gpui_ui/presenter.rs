@@ -1577,6 +1577,20 @@ impl PresenterView {
                     ),
             )
             .child(
+                control_neutral("notes-exportar", p)
+                    .child(icons::label(icons::UPLOAD_SIMPLE, "Exportar"))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _e, _w, cx| {
+                            this.with_deck(cx, |d| {
+                                if let Err(e) = d.export_notes() {
+                                    d.error = Some(e);
+                                }
+                            })
+                        }),
+                    ),
+            )
+            .child(
                 control_neutral("notes-titulo", p)
                     .child(icons::label(icons::PENCIL_SIMPLE, "Título"))
                     .on_mouse_down(

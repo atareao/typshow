@@ -42,3 +42,41 @@ fn typst_pipeline_multi_page() {
     let doc = result.unwrap();
     assert_eq!(doc.pages().len(), 3, "Should have 3 pages");
 }
+
+/// El guion embebido son comentarios: no debe alterar en nada el PDF renderizado.
+#[test]
+fn guion_embebido_no_aparece_en_el_pdf() {
+    let base = "== Uno\ncontenido uno\n";
+    let with_notes = "== Uno\n\
+                      // >>> typshow:notes\n\
+                      // guion secreto de la página\n\
+                      //\n\
+                      // con **markdown**\n\
+                      // >>> typshow:notes:end\n\
+                      contenido uno\n";
+
+    let render = |content: &str| {
+        let world = typshow::TypstWorld::new(content, "/tmp/fake.typ");
+        let doc = typst::compile::<typst_layout::PagedDocument>(&world)
+            .output
+            .expect("Typst compilation should succeed");
+        let options = typst_render::RenderOptions {
+            pixel_per_pt: typst::utils::Scalar::new(2.0),
+            render_bleed: false,
+        };
+        (
+            doc.pages().len(),
+            typst_render::render(&doc.pages()[0], &options),
+        )
+    };
+
+    let (pages_base, pixmap_base) = render(base);
+    let (pages_notes, pixmap_notes) = render(with_notes);
+
+    assert_eq!(pages_base, pages_notes, "el guion no añade páginas");
+    assert_eq!(
+        pixmap_base.data(),
+        pixmap_notes.data(),
+        "el guion embebido no debe cambiar un solo píxel del PDF"
+    );
+}
