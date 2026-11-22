@@ -909,14 +909,314 @@ fn trim_body(lines: &[&str]) -> String {
     lines[start..end].join("\n")
 }
 
+/// ¿Es `line` un separador de tramo (una línea de solo `─`, al menos 10)?
+fn is_timeline_separator(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.chars().count() >= 10 && trimmed.chars().all(|c| c == '─')
+}
+
+/// Rangos de bytes `(inicio, fin)` de cada marca `H:MM` de la línea.
+fn time_mark_ranges(line: &str) -> Vec<(usize, usize)> {
+    let bytes = line.as_bytes();
+    let mut marks = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut j = i;
+        while j < bytes.len() && bytes[j].is_ascii_digit() && j - start < 2 {
+            j += 1;
+        }
+        let has_clock = bytes.get(j) == Some(&b':')
+            && bytes.get(j + 1).is_some_and(u8::is_ascii_digit)
+            && bytes.get(j + 2).is_some_and(u8::is_ascii_digit);
+        if has_clock {
+            marks.push((start, j + 3));
+            i = j + 3;
+        } else {
+            i = start + 1;
+        }
+    }
+    marks
+}
+
+/// ¿Es `gap` el separador entre dos marcas horarias contiguas (` – `, ` - `, `~`)?
+fn is_time_range_gap(gap: &str) -> bool {
+    let gap = gap.trim();
+    !gap.is_empty() && gap.len() <= 3 && gap.chars().all(|c| matches!(c, '-' | '–' | '—' | '~'))
+}
+
+/// ¿**Abre** `line` un tramo horario `H:MM – H:MM` (formato de cabecera de bloque)?
+///
+/// Debe empezar por el tramo (solo espacios delante): una línea de cuerpo que
+/// mencione horas en medio no es una cabecera.
+fn starts_with_time_range(line: &str) -> bool {
+    let marks = time_mark_ranges(line);
+    let Some(&(start, end)) = marks.first() else {
+        return false;
+    };
+    line[..start].trim().is_empty()
+        && marks
+            .get(1)
+            .is_some_and(|&(second_start, _)| is_time_range_gap(&line[end..second_start]))
+}
+
+/// ¿Contiene `line` un tramo horario `H:MM – H:MM` en cualquier posición?
+///
+/// Sirve para reconocer regiones de meta o cola (p. ej. «duración total
+/// 45:00 – 50:00»), que no son cabecera ni cuerpo de bloque.
+///
+/// Limitación conocida: al aplicarse línea a línea sobre una región, una línea
+/// intermedia del cuerpo con un rango horario textual (p. ej. «Repaso: 0:00 – 2:00»)
+/// también la clasifica como meta/cola y puede truncar el bloque en curso (ver
+/// [`script_timeline_blocks`]).
+fn contains_time_range(line: &str) -> bool {
+    let marks = time_mark_ranges(line);
+    marks
+        .windows(2)
+        .any(|pair| is_time_range_gap(&line[pair[0].1..pair[1].0]))
+}
+
+/// Regiones del guion delimitadas por separadores de línea `─` (≥10).
+///
+/// La primera región es el preámbulo (lo anterior al primer separador) y las
+/// propias líneas de separación no forman parte de ninguna región.
+fn timeline_regions(markdown: &str) -> Vec<Vec<&str>> {
+    let mut regions: Vec<Vec<&str>> = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    for line in markdown.lines() {
+        if is_timeline_separator(line) {
+            regions.push(std::mem::take(&mut current));
+        } else {
+            current.push(line);
+        }
+    }
+    regions.push(current);
+    regions
+}
+
+/// Trocea un guion de grano grueso en sus bloques, en orden de aparición.
+///
+/// Un bloque arranca en una **región-cabecera** (su primera línea no vacía empieza
+/// por `H:MM – H:MM`) y su contenido es esa región **más las regiones siguientes**
+/// que no abren cabecera, de modo que funcionan tanto el cuerpo en la misma región
+/// que la cabecera como la estructura real de las escaletas, donde la cabecera va
+/// sola entre dos separadores y el cuerpo llega en la región siguiente:
+///
+/// ```text
+/// ──────  ──────  ──────────────
+/// 0:00 – 2:00  🎬 INTRO        ── región-cabecera   } bloque
+/// ──────  ──────               ── región-cuerpo     }
+/// 📌 Puntos a tratar: …
+/// ```
+///
+/// El preámbulo anterior al primer bloque se ignora. Una región posterior con un
+/// tramo horario en medio (meta o cola, p. ej. una nota de duración) cierra el
+/// bloque y se ignora. Un guion sin separadores devuelve vacío.
+///
+/// Limitaciones conocidas:
+///
+/// - La cola de producción **sin** marca horaria (p. ej. un `CHECKLIST`) se anexa
+///   al cuerpo del **último** bloque: el guion no trae marca explícita de fin.
+/// - Una **línea intermedia** del cuerpo con un rango horario textual (p. ej.
+///   «Repaso: 0:00 – 2:00») puede truncar el bloque y descartar el resto, porque
+///   la detección de fin de bloque usa [`contains_time_range`].
+pub(crate) fn script_timeline_blocks(markdown: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current: Option<Vec<&str>> = None;
+
+    let flush = |current: &mut Option<Vec<&str>>, blocks: &mut Vec<String>| {
+        if let Some(body) = current.take() {
+            blocks.push(trim_body(&body));
+        }
+    };
+
+    for region in timeline_regions(markdown) {
+        let opens_block = region
+            .iter()
+            .find(|line| !line.trim().is_empty())
+            .is_some_and(|header| starts_with_time_range(header));
+
+        if opens_block {
+            flush(&mut current, &mut blocks);
+            current = Some(region);
+        } else if region.iter().any(|line| contains_time_range(line)) {
+            // Meta o cola: cierra el bloque y no abre uno nuevo.
+            flush(&mut current, &mut blocks);
+        } else if let Some(body) = current.as_mut() {
+            body.extend(region);
+        }
+    }
+    flush(&mut current, &mut blocks);
+
+    blocks
+}
+
+/// Número de headings ancla (`=`/`==`) y posiciones (0-based) de las secciones `=`.
+///
+/// Reproduce el reparto posicional de [`build_page_seeds`]: cada heading `=`/`==`
+/// ancla una página, de modo que el heading ancla n-ésimo cae en la página n+1. Las
+/// secciones `=` son los headings de nivel 1; la portada (`title:`) no es heading.
+fn fixed_sections(source: &str) -> (usize, Vec<usize>) {
+    let fixed: Vec<HeadingInfo> = parse_typ_headings(source)
+        .into_iter()
+        .filter(|h| h.level >= 1 && h.level <= 2)
+        .collect();
+    let sections = fixed
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| h.level == 1)
+        .map(|(i, _)| i)
+        .collect();
+    (fixed.len(), sections)
+}
+
+/// Para cada sección `=` del `.typ`, el rango de páginas `[inicio, fin]` que cubre.
+///
+/// La página se computa como en [`build_page_seeds`] (n-ésimo heading ancla `=`/`==`
+/// → página n+1): una sección llega hasta la página anterior a la siguiente `=`, de
+/// modo que las diapositivas `==` de dentro caen en su rango. La portada (`title:`)
+/// y las `==` previas a la primera `=` no forman sección.
+pub(crate) fn section_page_ranges(typ_content: &str) -> Vec<(usize, usize)> {
+    let (anchor_count, sections) = fixed_sections(typ_content);
+    let mut ranges = Vec::with_capacity(sections.len());
+
+    for (k, &pos) in sections.iter().enumerate() {
+        let start = pos + 1;
+        // La siguiente sección empieza en la página `next + 1`, así que esta
+        // termina en la página `next`; la última llega al último heading ancla.
+        let end = sections.get(k + 1).copied().unwrap_or(anchor_count);
+        if end >= start {
+            ranges.push((start, end));
+        }
+    }
+
+    ranges
+}
+
+/// Reparte B bloques de guion entre S secciones `=`, de forma monótona y cubriendo
+/// todas las secciones.
+///
+/// Devuelve, por cada sección, el índice del primer bloque que le corresponde
+/// (`None` nunca se emite: si hay bloques, toda sección recibe uno). Con `b == s`
+/// es la identidad; con `b < s` se asigna a cada sección el bloque más cercano del
+/// reparto proporcional; con `b > s` los bloques sobrantes se agregan a la misma
+/// sección (el índice devuelto es el primero de su tramo). `b == 0` o `s == 0`
+/// devuelve vacío.
+pub(crate) fn map_blocks_to_sections(blocks: usize, sections: usize) -> Vec<Option<usize>> {
+    if blocks == 0 || sections == 0 {
+        return Vec::new();
+    }
+    if blocks == sections {
+        return (0..sections).map(Some).collect();
+    }
+
+    (0..sections)
+        .map(|section| {
+            let index = if blocks < sections {
+                // Redondeo del reparto proporcional: i·(b−1)/(s−1).
+                let numerator = section * (blocks - 1) * 2 + (sections - 1);
+                numerator / (2 * (sections - 1))
+            } else {
+                section * blocks / sections
+            };
+            Some(index.min(blocks - 1))
+        })
+        .collect()
+}
+
+/// Convierte un guion de grano grueso en bloques embebidos, mapeando sus bloques a
+/// las secciones `=` del `.typ` por rango de páginas.
+///
+/// El Markdown de cada sección se escribe **replicado** tras cada heading del rango
+/// de páginas de la sección (ver [`section_page_ranges`]), reutilizando el export
+/// idempotente: reejecutar actualiza los bloques en lugar de duplicarlos. Devuelve
+/// el `.typ` resultante y cuántos bloques del guion se escribieron.
+pub(crate) fn embed_script_ranges_into_typ(script: &str, typ_source: &str) -> (String, usize) {
+    let blocks = script_timeline_blocks(script);
+    if blocks.is_empty() {
+        return (typ_source.to_string(), 0);
+    }
+
+    let ranges = section_page_ranges(typ_source);
+    if ranges.is_empty() {
+        warn!(
+            "el guion tiene {} bloques por tramos pero el documento no tiene ninguna sección `=` \
+             donde anclarlos; no se escribe ningún bloque",
+            blocks.len()
+        );
+        return (typ_source.to_string(), 0);
+    }
+
+    // El mapeo puro es la única fuente de asignación: sus índices delimitan los
+    // bloques de cada sección (con `b > s` agrega los sobrantes a la misma
+    // sección) y con `b < s` cada sección toma un único bloque, el más cercano.
+    let mapping = map_blocks_to_sections(blocks.len(), ranges.len());
+    let blocks_of = |section: usize| -> &[String] {
+        let start = mapping[section].unwrap_or(0);
+        let end = if blocks.len() >= ranges.len() {
+            mapping
+                .get(section + 1)
+                .copied()
+                .flatten()
+                .unwrap_or(blocks.len())
+        } else {
+            start + 1
+        };
+        &blocks[start..end.min(blocks.len())]
+    };
+
+    let mut records = Vec::new();
+    for (section, &(start, end)) in ranges.iter().enumerate() {
+        let markdown = blocks_of(section)
+            .iter()
+            .filter(|body| !body.trim().is_empty())
+            .map(String::as_str)
+            .collect::<Vec<&str>>()
+            .join("\n\n");
+        if markdown.trim().is_empty() {
+            continue;
+        }
+        for page in start..=end {
+            records.push(NoteRecord {
+                page_number: page,
+                heading: None,
+                content: markdown.clone(),
+                source_hash: None,
+                edited: false,
+            });
+        }
+    }
+
+    let written = blocks.iter().filter(|body| !body.trim().is_empty()).count();
+    (render_exported_typ(typ_source, &records), written)
+}
+
 /// Convierte un guion Markdown en bloques embebidos dentro de `typ_source`.
 ///
-/// Empareja la n-ésima sección `## …` con el n-ésimo heading de slide (`=`/`==`),
-/// en orden, reutilizando el export idempotente: reejecutar actualiza los bloques
-/// existentes en lugar de duplicarlos. Devuelve el `.typ` resultante y cuántas
-/// secciones se escribieron.
+/// Con secciones `## …`, empareja la n-ésima sección con el n-ésimo heading de
+/// slide (`=`/`==`), en orden, reutilizando el export idempotente. Sin secciones
+/// `##` pero con bloques por tramos de tiempo, aplica el **mapeo por rango** a las
+/// secciones `=` (ver [`embed_script_ranges_into_typ`]). Sin ninguna de las dos
+/// cosas no escribe nada y registra un aviso. Devuelve el `.typ` resultante y
+/// cuántos bloques se escribieron.
 pub(crate) fn embed_script_into_typ(script: &str, typ_source: &str) -> (String, usize) {
     let bodies = script_section_bodies(script);
+
+    if bodies.is_empty() {
+        if script_timeline_blocks(script).is_empty() {
+            warn!(
+                "el guion no tiene secciones `## …` ni bloques por tramos de tiempo; no se \
+                 escribe ningún bloque"
+            );
+            return (typ_source.to_string(), 0);
+        }
+        return embed_script_ranges_into_typ(script, typ_source);
+    }
+
     let heading_count = parse_typ_headings(typ_source)
         .iter()
         .filter(|h| h.level >= 1 && h.level <= 2)
@@ -2060,5 +2360,415 @@ More text
         assert_eq!(content_hash(""), "cbf29ce484222325");
         assert_eq!(content_hash("a"), "af63dc4c8601ec8c");
         assert_eq!(content_hash("guion uno").len(), 16);
+    }
+
+    // --- Mapeo por rango de guiones de grano grueso -------------------------
+
+    /// Guion de grano grueso con la **estructura real** de las escaletas: la
+    /// cabecera ocupa su propia región entre dos separadores y el cuerpo llega en
+    /// la región siguiente (no en la misma región que la cabecera).
+    const GUION_TRAMOS: &str = "\
+# Episodio 812 — Wave Terminal
+
+Preámbulo del episodio que no es ningún bloque.
+
+──────────────────────────────
+0:00 – 2:00  🎬 INTRO
+──────────────────────────────
+
+📌 Puntos a tratar:
+▪ Saludo del episodio.
+
+🎯 Objetivo: presentar el episodio.
+
+──────────────────────────────
+2:00 – 6:30  📋 BLOQUE 1 — ¿Por qué systemd timers?
+──────────────────────────────
+
+Aquí va el **contenido** del bloque.
+
+──────────────────────────────
+6:30 – 12:00  📋 BLOQUE 2 — Wave Terminal
+──────────────────────────────
+
+Segundo bloque.
+";
+
+    /// `.typ` con portada, una `==` previa a la primera `=`, tres secciones `=`
+    /// y diapositivas `==` dentro de cada rango.
+    const TYP_SECCIONES: &str = "\
+#set document(title: \"Episodio 812\")
+
+== Previa
+sin sección propia
+
+= Intro
+intro
+
+== Detalle intro
+detalle
+
+= Bloque 1
+uno
+
+== Detalle bloque
+detalle
+
+= Cierre
+fin
+";
+
+    /// `.typ` de dos secciones `=`, cada una cubriendo dos páginas.
+    const TYP_RANGO: &str = "\
+= Intro
+contenido intro
+
+== Detalle intro
+detalle
+
+= Bloque 1
+contenido uno
+
+== Detalle bloque
+detalle
+";
+
+    /// Guion de dos tramos con preámbulo, en la estructura real de las escaletas.
+    const GUION_DOS_TRAMOS: &str = "\
+# Episodio
+
+preámbulo
+
+──────────
+0:00 – 2:00  🎬 INTRO
+──────────
+
+Cuerpo del intro.
+
+──────────
+2:00 – 6:30  📋 BLOQUE 1
+──────────
+
+Cuerpo del bloque.
+";
+
+    #[test]
+    fn bloques_por_tramos_basico() {
+        let blocks = script_timeline_blocks(GUION_TRAMOS);
+
+        assert_eq!(
+            blocks.len(),
+            3,
+            "un bloque por cabecera con marca de tiempo"
+        );
+        assert!(
+            blocks[0].starts_with("0:00 – 2:00  🎬 INTRO"),
+            "{:?}",
+            blocks[0]
+        );
+        assert!(
+            blocks[0].contains("📌 Puntos a tratar:"),
+            "el cuerpo de la región posterior va en el bloque: {:?}",
+            blocks[0]
+        );
+        assert!(blocks[0].contains("▪ Saludo del episodio."));
+        assert!(blocks[0].contains("🎯 Objetivo: presentar el episodio."));
+        assert!(!blocks[0].contains("Preámbulo del episodio"));
+        assert!(blocks[1].starts_with("2:00 – 6:30  📋 BLOQUE 1"));
+        assert!(blocks[1].contains("**contenido**"));
+        assert!(blocks[2].starts_with("6:30 – 12:00  📋 BLOQUE 2"));
+        assert!(blocks[2].ends_with("Segundo bloque."));
+    }
+
+    #[test]
+    fn cuerpo_tras_la_region_cabecera() {
+        // Estructura real reportada en el episodio 812:
+        // sep / cabecera / sep / cuerpo / sep / cabecera / sep / cuerpo.
+        let md = "\
+──────────
+0:00 – 2:00  🎬 INTRO
+──────────
+
+📌 Puntos a tratar:
+▪ Saludo.
+
+──────────
+2:00 – 6:30  📋 BLOQUE 1
+──────────
+
+🎯 Objetivo: explicar Wave.
+";
+
+        let blocks = script_timeline_blocks(md);
+
+        assert_eq!(blocks.len(), 2, "nº de bloques = nº de cabeceras");
+        assert_eq!(
+            blocks[0],
+            "0:00 – 2:00  🎬 INTRO\n\n📌 Puntos a tratar:\n▪ Saludo."
+        );
+        assert_eq!(
+            blocks[1],
+            "2:00 – 6:30  📋 BLOQUE 1\n\n🎯 Objetivo: explicar Wave."
+        );
+    }
+
+    #[test]
+    fn bloques_ignoran_preambulo_y_cola() {
+        let md = "\
+# Título del episodio
+
+Preámbulo.
+
+──────────
+0:00 – 2:00  🎬 INTRO
+──────────
+
+Cuerpo del intro.
+
+──────────
+⏱ Duración total: 45:00 – 50:00
+";
+
+        let blocks = script_timeline_blocks(md);
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0], "0:00 – 2:00  🎬 INTRO\n\nCuerpo del intro.");
+    }
+
+    #[test]
+    fn sin_tramos_devuelve_vacio() {
+        let md = "# Título\n\n## Sección\n\nsin separadores de tramo\n";
+        assert!(script_timeline_blocks(md).is_empty());
+    }
+
+    #[test]
+    fn cola_con_rango_no_es_bloque() {
+        // La cola menciona horas, pero no ABRE con la cabecera: no es un bloque.
+        let md = "\
+──────────
+0:00 – 2:00  🎬 INTRO
+Cuerpo intro.
+──────────
+Notas de cierre: duración total 45:00 – 50:00
+";
+
+        let blocks = script_timeline_blocks(md);
+
+        assert_eq!(
+            blocks.len(),
+            1,
+            "solo la región que abre con la cabecera: {blocks:?}"
+        );
+        assert_eq!(blocks[0], "0:00 – 2:00  🎬 INTRO\nCuerpo intro.");
+    }
+
+    #[test]
+    fn rangos_por_seccion() {
+        assert_eq!(
+            section_page_ranges(TYP_SECCIONES),
+            vec![(2, 3), (4, 5), (6, 6)]
+        );
+    }
+
+    #[test]
+    fn rangos_ignoran_portada() {
+        let ranges = section_page_ranges(TYP_SECCIONES);
+        assert_eq!(
+            ranges.len(),
+            3,
+            "la portada y la `==` previa no son secciones"
+        );
+        assert_eq!(
+            ranges[0].0, 2,
+            "la primera sección arranca tras la `==` previa"
+        );
+    }
+
+    #[test]
+    fn mapeo_identidad() {
+        assert_eq!(
+            map_blocks_to_sections(3, 3),
+            vec![Some(0), Some(1), Some(2)]
+        );
+        assert_eq!(map_blocks_to_sections(1, 1), vec![Some(0)]);
+    }
+
+    #[test]
+    fn mapeo_b_menor_s() {
+        // Reparto monótono que cubre todas las secciones con el bloque más cercano.
+        assert_eq!(
+            map_blocks_to_sections(2, 5),
+            vec![Some(0), Some(0), Some(1), Some(1), Some(1)]
+        );
+        // Con un solo bloque, todas las secciones reciben el mismo (el más cercano).
+        assert_eq!(
+            map_blocks_to_sections(1, 3),
+            vec![Some(0), Some(0), Some(0)]
+        );
+    }
+
+    #[test]
+    fn mapeo_b_mayor_s() {
+        // Los bloques sobrantes se agregan a la misma sección: cada sección
+        // devuelve el primer bloque de su tramo.
+        assert_eq!(map_blocks_to_sections(5, 2), vec![Some(0), Some(2)]);
+        assert_eq!(map_blocks_to_sections(4, 1), vec![Some(0)]);
+        assert_eq!(
+            map_blocks_to_sections(7, 3),
+            vec![Some(0), Some(2), Some(4)]
+        );
+    }
+
+    #[test]
+    fn mapeo_vacio() {
+        assert!(map_blocks_to_sections(0, 3).is_empty());
+        assert!(map_blocks_to_sections(3, 0).is_empty());
+        assert!(map_blocks_to_sections(0, 0).is_empty());
+    }
+
+    #[test]
+    fn embed_replica_en_rango() {
+        let (out, written) = embed_script_ranges_into_typ(GUION_DOS_TRAMOS, TYP_RANGO);
+
+        assert_eq!(written, 2);
+        let blocks = parse_embedded_blocks(&out);
+        assert_eq!(blocks.len(), 4, "un bloque por página del rango: {out}");
+
+        let intro = "0:00 – 2:00  🎬 INTRO\n\nCuerpo del intro.";
+        let bloque = "2:00 – 6:30  📋 BLOQUE 1\n\nCuerpo del bloque.";
+        assert_eq!(blocks[0].heading, "Intro");
+        assert_eq!(blocks[0].markdown, intro);
+        assert_eq!(blocks[1].heading, "Detalle intro");
+        assert_eq!(
+            blocks[1].markdown, intro,
+            "replicado en la 2ª página del rango"
+        );
+        assert_eq!(blocks[2].heading, "Bloque 1");
+        assert_eq!(blocks[2].markdown, bloque);
+        assert_eq!(blocks[3].heading, "Detalle bloque");
+        assert_eq!(blocks[3].markdown, bloque);
+    }
+
+    #[test]
+    fn embed_rango_idempotente() {
+        let (out1, _) = embed_script_ranges_into_typ(GUION_DOS_TRAMOS, TYP_RANGO);
+        let (out2, _) = embed_script_ranges_into_typ(GUION_DOS_TRAMOS, &out1);
+
+        assert_eq!(out1, out2);
+        assert_eq!(out1.matches(">>> typshow:notes:end").count(), 4);
+        assert_eq!(parse_embedded_blocks(&out2).len(), 4);
+    }
+
+    #[test]
+    fn embed_agrega_bloques_sobrantes() {
+        // 3 bloques para 2 secciones: los sobrantes se agregan a la misma sección.
+        let script = "\
+──────────
+0:00 – 2:00  🎬 INTRO
+──────────
+
+Cuerpo del intro.
+
+──────────
+2:00 – 6:30  📋 BLOQUE 1
+──────────
+
+Cuerpo uno.
+
+──────────
+6:30 – 9:00  📋 BLOQUE 2
+──────────
+
+Cuerpo dos.
+";
+
+        let (out, written) = embed_script_ranges_into_typ(script, TYP_RANGO);
+
+        assert_eq!(written, 3);
+        let blocks = parse_embedded_blocks(&out);
+        assert_eq!(
+            blocks.len(),
+            4,
+            "2 secciones × 2 páginas ⇒ 4 réplicas: {out}"
+        );
+        assert_eq!(
+            blocks[0].markdown,
+            "0:00 – 2:00  🎬 INTRO\n\nCuerpo del intro."
+        );
+        let agregado =
+            "2:00 – 6:30  📋 BLOQUE 1\n\nCuerpo uno.\n\n6:30 – 9:00  📋 BLOQUE 2\n\nCuerpo dos.";
+        assert_eq!(blocks[2].markdown, agregado);
+        assert_eq!(blocks[3].markdown, agregado);
+    }
+
+    #[test]
+    fn embed_sin_secciones_no_escribe() {
+        // Documento sin ninguna sección `=` (solo portada y una `==`).
+        let typ = "#set document(title: \"X\")\n\n== Suelta\ncontenido\n";
+
+        let (out, written) = embed_script_ranges_into_typ(GUION_DOS_TRAMOS, typ);
+
+        assert_eq!(written, 0);
+        assert_eq!(out, typ, "sin secciones `=` el .typ queda intacto");
+    }
+
+    /// Escribe `script` y `typ` en ficheros temporales y devuelve sus rutas.
+    fn temp_script_and_typ(tag: &str, script: &str, typ: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let script_path = dir.join(format!("typshow-{tag}-{}-{unique}.md", std::process::id()));
+        let typ_path = dir.join(format!("typshow-{tag}-{}-{unique}.typ", std::process::id()));
+        std::fs::write(&script_path, script).unwrap();
+        std::fs::write(&typ_path, typ).unwrap();
+        (script_path, typ_path)
+    }
+
+    #[test]
+    fn cli_fallback_tramos() {
+        let (script_path, typ_path) = temp_script_and_typ("rango", GUION_DOS_TRAMOS, TYP_RANGO);
+
+        let written =
+            guion_embed_files(&script_path.to_string_lossy(), &typ_path.to_string_lossy()).unwrap();
+
+        assert_eq!(written, 2);
+        let typ = std::fs::read_to_string(&typ_path).unwrap();
+        assert_eq!(parse_embedded_blocks(&typ).len(), 4);
+        assert!(typ.contains("// Cuerpo del bloque."));
+        std::fs::remove_file(&script_path).ok();
+        std::fs::remove_file(&typ_path).ok();
+    }
+
+    #[test]
+    fn cli_usa_secciones_cuando_existen() {
+        let script = "## Uno\n\ncuerpo uno\n\n## Dos\n\ncuerpo dos\n";
+        let (script_path, typ_path) =
+            temp_script_and_typ("secciones", script, "== Uno\nslide\n\n== Dos\nslide\n");
+
+        let written =
+            guion_embed_files(&script_path.to_string_lossy(), &typ_path.to_string_lossy()).unwrap();
+
+        assert_eq!(written, 2, "con `##` se mantiene el mapeo 1:1");
+        let typ = std::fs::read_to_string(&typ_path).unwrap();
+        assert_eq!(parse_embedded_blocks(&typ).len(), 2);
+        std::fs::remove_file(&script_path).ok();
+        std::fs::remove_file(&typ_path).ok();
+    }
+
+    #[test]
+    fn cli_sin_bloques_avisa() {
+        let (script_path, typ_path) =
+            temp_script_and_typ("vacio", "# Título\n\nsolo texto sin bloques\n", TYP_RANGO);
+
+        let written =
+            guion_embed_files(&script_path.to_string_lossy(), &typ_path.to_string_lossy()).unwrap();
+
+        assert_eq!(written, 0);
+        let typ = std::fs::read_to_string(&typ_path).unwrap();
+        assert_eq!(typ, TYP_RANGO, "el .typ queda intacto");
+        std::fs::remove_file(&script_path).ok();
+        std::fs::remove_file(&typ_path).ok();
     }
 }
