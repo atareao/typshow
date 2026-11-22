@@ -17,7 +17,7 @@ secciones `##`, de modo que las escaletas con fences vuelvan al modo por rango (
 
 - [x] 1. Fences + indentación en `script_section_bodies` + tests.
 - [x] 2. Regresión del fallback (tramos con Markdown embebido ⇒ modo rango).
-- [x] 3. Auditoría APROBADA, fmt/clippy/test limpios, re-ejecución sobre la 807 (7 bloques). Doc pendiente de archivar al mergear.
+- [x] COMPLETADA: auditoría aprobada, tests limpios, re-ejecución sobre la 807, doc y archivado (merge PR #64, `58a8961`).
 
 ## Verificación
 
