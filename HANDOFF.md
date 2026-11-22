@@ -1,20 +1,20 @@
 # Handoff — typshow — 2026-11-22
 
 ## Objetivo
-Línea del guion embebido **cerrada**. Siguiente: housekeeping de issues antiguos y/o nueva feature.
+Ciclo de guion embebido **cerrado** (mapeo por rango + fix de fences) y **housekeeping hecho**.
+Sin tareas pendientes conocidas; abrir la siguiente feature desde un issue.
 
-## Estado
-- **Completado y mergeado en `development`:**
-  - #52 Guion embebido 1:1 por secciones `##` — PR #53, archive PR #54.
-  - #55 Panel de notas redimensionable — PR #56, archive PR #57.
-  - **#59 Mapeo por rango de guiones de grano grueso** — PR #60 (`43402c0`), archive PR #61 (`83d364e`). Doc `docs/mapeo-rango-guion.md`, plan `plans/PLAN-012-ARCHIVED.md`.
-- `development` al día (`83d364e`). Árbol limpio. Sin ramas feature/chore colgando.
-- Verificación: `cargo test` **259 lib + 4 integración**; `clippy -D warnings` y `fmt` limpios. Auditorías `@rust-reviewer` APROBADAS.
-- Verificación real #59 sobre `episodio-812-escaleta-wave-terminal.md` + su `.typ`: 7 bloques embebidos con cuerpo, visible en el presentador, invisible en PDF, idempotente.
+## Estado (todo mergeado en `development`)
+- #52 Guion embebido 1:1 por secciones `##` — PR #53, archive #54.
+- #55 Panel de notas redimensionable — PR #56, archive #57.
+- #59 Mapeo por rango de guiones de grano grueso — PR #60 (`43402c0`), archive #61 (`83d364e`). Doc `docs/mapeo-rango-guion.md`, plan `PLAN-012-ARCHIVED`.
+- **#63 Fix: `##` dentro de bloques de código** (secuestraba el modo rango) — PR #64 (`58a8961`), archive #65 (`e3e879a`). Doc `docs/fix-secciones-codigo.md`, plan `PLAN-013-ARCHIVED`.
+- **Housekeeping:** issues #33, #34, #35, #42, #46 verificados (código + change archivado + PR) y **cerrados**. `gh issue list --state open` ⇒ **0 abiertos**.
+- **Datos (fuera del repo):** las **15** presentaciones de `presentaciones/` (episodios 805–818, 822) tienen ya el guion embebido por rango (7–8 bloques, con cuerpo, idempotente). Backup previo en `/tmp/opencode/backup-presentaciones/presentaciones-20261122-102440.tgz` (446 M).
+- `development` al día. Árbol limpio. `cargo test` **264 lib + 4 integración**; `clippy -D warnings` y `fmt` limpios.
 
 ## Pendiente
-1. **Housekeeping:** issues antiguos abiertos que parecen ya implementados — revisar y cerrar si procede: **#46, #42, #35, #34, #33** (hay docs en `docs/`).
-2. **Guion embebido — resto de episodios:** el modo por rango es automático (sin flag), así que el pipeline ya lo aprovecha; opcionalmente re-ejecutar `typshow guion-embed` sobre los episodios de grano grueso que falten.
+- (ninguno conocido). Ideas: re-ejecutar `guion-embed` sobre episodios futuros en el pipeline (el modo por rango es automático).
 
 ## Punto de partida
 ```bash
@@ -25,11 +25,12 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --
 ```
 
 ## Metodología / reglas
-SDD (OpenSpec) + TDD: issue como punto de entrada → `openspec/changes/<feature>/` → aprobar spec → RED/GREEN/REFACTOR → `openspec archive` al mergear. Rama `feature/*` desde `development`; PR a `development`; commits conventional + gitmoji. Nunca editar en `main`/`development` (archivados por rama `chore/` + PR). Plan en `plans/PLAN-<NNN>.md` (siguiente libre: **013**). Doc de feature en `docs/<feature>.md`.
+SDD (OpenSpec) + TDD: issue como punto de entrada → `openspec/changes/<feature>/` → aprobar spec → RED/GREEN/REFACTOR → `openspec archive` al mergear. Rama `feature/*`/`fix/*` desde `development`; PR a `development`; conventional + gitmoji. Nunca editar en `main`/`development` (archivados por rama `chore/` + PR). Plan en `plans/PLAN-<NNN>.md` (siguiente libre: **014**). Doc de feature en `docs/<feature>.md`.
 
 ## Riesgos y notas
-- **Verificación real > auditoría estática:** en #59 la auditoría no cazó que `script_timeline_blocks` perdía el cuerpo del bloque; lo detectó la corrida sobre la 812. Mantener la tarea de verificación real.
-- **Subagentes:** `@rust-writer` falló dos veces (no-op fabricado); `@backend-dev` es el que implementa de forma fiable. **Verificar siempre con CLI** (`git diff --stat`, `rg` de símbolos, `cargo test`) antes de aceptar.
-- **Mapeo por rango — limitaciones** (ver `docs/mapeo-rango-guion.md`): la cola sin marca horaria (p. ej. `CHECKLIST`) se anexa a la última sección; una hora en una línea de cuerpo puede truncar el bloque.
+- **La verificación real caza lo que la auditoría estática no ve:** en #59 se descubrió que se perdía el **cuerpo** del bloque; en el opcional, que `script_section_bodies` contaba `##` dentro de bloques de código. Mantener SIEMPRE la verificación sobre datos reales.
+- **Subagentes:** `@backend-dev` es el fiable para implementar; `@rust-writer` falló con no-ops fabricados. **Verificar con CLI** (`git diff --stat`, `rg` de símbolos, `cargo test`) antes de aceptar; los resúmenes no incluyen siempre las salidas literales.
+- **Mapeo por rango — limitaciones** (`docs/mapeo-rango-guion.md`): la cola sin marca horaria (p. ej. `CHECKLIST`) se anexa a la última sección; una hora en una línea de cuerpo puede truncar el bloque.
+- **Detección `##`** (`docs/fix-secciones-codigo.md`): tab de indentación cuenta como 1 espacio; acepta `##` desnudo.
 - Config: rama de `~/.config/opencode` **sin push** (gitea); `~/.agents` es repo local.
-- `.typshow.db` sidecar del episodio `el-dia…` ya sembrado; copia con guion embebido en la carpeta del episodio.
+- `.typshow.db` sidecar del episodio `el-dia…` ya sembrado.
