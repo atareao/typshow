@@ -15,9 +15,9 @@ secciones `##`, de modo que las escaletas con fences vuelvan al modo por rango (
 
 ## Tareas (TDD, espejo de tasks.md)
 
-- [ ] 1. Fences + indentación en `script_section_bodies` + tests.
-- [ ] 2. Regresión del fallback (tramos con Markdown embebido ⇒ modo rango).
-- [ ] 3. Auditoría, fmt/clippy/test, re-ejecución sobre la 807, doc y archivado.
+- [x] 1. Fences + indentación en `script_section_bodies` + tests.
+- [x] 2. Regresión del fallback (tramos con Markdown embebido ⇒ modo rango).
+- [x] 3. Auditoría APROBADA, fmt/clippy/test limpios, re-ejecución sobre la 807 (7 bloques). Doc pendiente de archivar al mergear.
 
 ## Verificación
 
@@ -27,4 +27,4 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --
 
 ## Estado
 
-- [ ] Pendiente de aprobación del spec por el usuario (fase SDD).
+- Spec aprobado; tareas 1–2 en verde (TDD RED→GREEN). Pendientes: auditoría, re-ejecución sobre la 807, doc y archivado.
