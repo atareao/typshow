@@ -24,5 +24,5 @@
 
 - [x] 3.1 Auditoría `@rust-reviewer`: APROBADA (6 nits menores; #2 documentado, #3 corregido).
 - [x] 3.2 `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`.
-- [ ] 3.3 Verificación manual: importar un guion real (p. ej. 807) desde la app y ver las notas — **pendiente de confirmación del usuario** (requiere clic en la GUI).
+- [x] 3.3 Verificación manual: usuario confirmada (importar guion real desde la app, notas pobladas).
 - [x] 3.4 `docs/boton-importar-guion.md` creada; change archivado al mergear.

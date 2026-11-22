@@ -20,7 +20,7 @@ las notas, preservando las editadas a mano.
 
 - [x] 1. `Deck::import_guion` + tests (embebe+reimporta, preserva editadas, sin bloques, idempotencia, sin documento).
 - [x] 2. Botón + diálogo + feedback en `presenter.rs`.
-- [x] 3. Auditoría APROBADA, fmt/clippy/test limpios, doc y archivado. Verificación manual UI pendiente del usuario.
+- [x] 3. Auditoría APROBADA, fmt/clippy/test limpios, doc y archivado. Verificación manual UI confirmada por el usuario.
 
 ## Verificación
 

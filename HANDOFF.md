@@ -1,7 +1,7 @@
 # Handoff — typshow — 2026-11-22
 
 ## Objetivo
-Botón «Importar guion» **entregado**. **Verificación manual de la UI pendiente del usuario** (tarea 3.3). Sin más tareas abiertas.
+Botón «Importar guion» **entregado y verificado** (usuario). Sin tareas abiertas.
 
 ## Estado (todo mergeado en `development`)
 - #52 Guion embebido 1:1 por `##` — PR #53/54.
@@ -14,7 +14,7 @@ Botón «Importar guion» **entregado**. **Verificación manual de la UI pendien
 - **Binario instalado** (`~/.cargo/bin/typshow`, reinstalado con `cargo install --path .`) con #59, #63 y #67.
 
 ## Pendiente
-1. **Verificación manual (tarea 3.3):** abrir una presentación con `~/.cargo/bin/typshow <presentacion.typ>`, pulsar **«Importar guion»** en el panel de notas, elegir un `.md` (p. ej. `episodio-807-escaleta-hermes-de-0-a-100.md`) y confirmar que las notas se pueblan por página y que el aviso efímero muestra «N bloques importados». Si algo falla, reabrir un issue.
+- (ninguno conocido). La verificación manual de #67 (tarea 3.3) fue **confirmada por el usuario**.
 
 ## Punto de partida
 ```bash
