@@ -873,13 +873,16 @@ pub fn export_to_typ(path: &str, records: &[NoteRecord]) -> Result<(), Box<dyn s
 ///
 /// El cuerpo de cada sección excluye la línea del propio `## …` y se recorta de
 /// líneas en blanco iniciales y finales. El texto previo a la primera sección se
-/// ignora.
+/// ignora. Las líneas `## …` que caen dentro de un bloque de código cercado o que
+/// llevan indentación de código (4 o más espacios) NO se consideran secciones.
 pub(crate) fn script_section_bodies(markdown: &str) -> Vec<String> {
     let mut sections = Vec::new();
     let mut current: Option<Vec<&str>> = None;
 
-    for line in markdown.lines() {
-        if line.trim_start().starts_with("## ") {
+    let fenced = fenced_line_flags(markdown);
+
+    for (line, inside_fence) in markdown.lines().zip(fenced) {
+        if !inside_fence && is_section_heading(line) {
             if let Some(body) = current.take() {
                 sections.push(trim_body(&body));
             }
@@ -894,6 +897,72 @@ pub(crate) fn script_section_bodies(markdown: &str) -> Vec<String> {
     }
 
     sections
+}
+
+/// ¿Es `line` una cabecera de sección (`## `, o exactamente `##`) del guion?
+///
+/// Solo cuentan las cabeceras con indentación de hasta 3 espacios: 4 o más
+/// espacios son un bloque de código indentado en Markdown, no una cabecera.
+fn is_section_heading(line: &str) -> bool {
+    if indent_width(line) > 3 {
+        return false;
+    }
+    let trimmed = line.trim_start();
+    trimmed == "##" || trimmed.starts_with("## ")
+}
+
+/// Número de espacios de indentación inicial de `line`.
+fn indent_width(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Marca de un fence de código: `(carácter, longitud)` si `line` lo abre.
+///
+/// Solo cuentan los fences de 3 o más backticks o tildes con indentación de
+/// hasta 3 espacios. La información tras la marca (p. ej. el lenguaje) es
+/// admisible al abrir el fence.
+fn fence_marker(line: &str) -> Option<(char, usize)> {
+    if indent_width(line) > 3 {
+        return None;
+    }
+    let trimmed = line.trim_start();
+    let marker = trimmed.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+    let len = trimmed.chars().take_while(|c| *c == marker).count();
+    (len >= 3).then_some((marker, len))
+}
+
+/// Marca si cada línea de `markdown` cae dentro de un bloque de código cercado.
+///
+/// Un fence abierto se cierra con otro fence del mismo carácter y longitud igual
+/// o mayor que no lleve nada tras la marca (la línea de cierre es «desnuda»).
+fn fenced_line_flags(markdown: &str) -> Vec<bool> {
+    let mut flags = Vec::new();
+    let mut open: Option<(char, usize)> = None;
+
+    for line in markdown.lines() {
+        match open {
+            None => {
+                flags.push(false);
+                if let Some(marker) = fence_marker(line) {
+                    open = Some(marker);
+                }
+            }
+            Some((marker_char, marker_len)) => {
+                let closes = fence_marker(line).is_some_and(|(c, len)| {
+                    c == marker_char && len >= marker_len && line.trim().chars().all(|ch| ch == c)
+                });
+                flags.push(!closes);
+                if closes {
+                    open = None;
+                }
+            }
+        }
+    }
+
+    flags
 }
 
 /// Une las líneas de una sección recortando las líneas en blanco de los extremos.
@@ -2724,6 +2793,120 @@ Cuerpo dos.
         std::fs::write(&script_path, script).unwrap();
         std::fs::write(&typ_path, typ).unwrap();
         (script_path, typ_path)
+    }
+
+    // --- Detección de secciones consciente de fences e indentación ----------
+
+    #[test]
+    fn seccion_dentro_de_fence_ignorada() {
+        // Escaleta real (episodio 807): el Markdown embebido en un fence contiene
+        // líneas `## …` que NO son secciones del guion.
+        let md = "\
+## Real
+
+cuerpo real
+
+```markdown
+## Falsa
+contenido de ejemplo
+```
+";
+
+        let bodies = script_section_bodies(md);
+
+        assert_eq!(bodies.len(), 1, "solo cuenta la sección real: {bodies:?}");
+        assert!(
+            bodies[0].starts_with("cuerpo real\n\n```markdown"),
+            "el fence pertenece al cuerpo de la sección real: {:?}",
+            bodies[0]
+        );
+        assert!(
+            !bodies[0].starts_with("## Falsa"),
+            "`## Falsa` no abre una sección propia"
+        );
+    }
+
+    #[test]
+    fn cabecera_indentada_ignorada() {
+        // 4 espacios = bloque de código indentado en Markdown, no cabecera.
+        let md = "## Real\n\ncuerpo real\n\n    ## Falsa\n    contenido indentado\n";
+
+        let bodies = script_section_bodies(md);
+
+        assert_eq!(bodies.len(), 1, "la indentada no es sección: {bodies:?}");
+        assert_eq!(
+            bodies[0],
+            "cuerpo real\n\n    ## Falsa\n    contenido indentado"
+        );
+    }
+
+    #[test]
+    fn secciones_reales_intactas() {
+        let md = "## Uno\n\ncuerpo uno\n\n## Dos\n\ncuerpo dos\n\n## Tres\n\ncuerpo tres\n";
+
+        let bodies = script_section_bodies(md);
+
+        assert_eq!(bodies, vec!["cuerpo uno", "cuerpo dos", "cuerpo tres"]);
+    }
+
+    #[test]
+    fn fences_mas_largos_y_tildes() {
+        // Un fence de 4 backticks no se cierra con uno de 3, y `~~~` es fence.
+        let md = "\
+## Real
+
+````text
+```
+## Aún dentro
+```
+
+## Falsa en tildes
+
+~~~
+## Otra dentro
+~~~
+";
+
+        let bodies = script_section_bodies(md);
+
+        assert_eq!(bodies.len(), 1, "solo la sección real: {bodies:?}");
+        assert!(bodies[0].contains("## Falsa en tildes"));
+    }
+
+    #[test]
+    fn tramos_con_markdown_embebido_usa_rango() {
+        // Estructura real de escaleta: sep / cabecera / sep / cuerpo, con Markdown
+        // embebido en un fence que contiene `## …`.
+        let script = "\
+──────────
+0:00 – 2:00  🎬 INTRO
+──────────
+
+📌 Puntos a tratar:
+
+```markdown
+## Cómo usarla
+comando de ejemplo
+```
+
+──────────
+2:00 – 6:30  📋 BLOQUE 1
+──────────
+
+🎯 Objetivo: explicar el bloque.
+";
+
+        assert!(
+            script_section_bodies(script).is_empty(),
+            "el `##` dentro del fence no debe contar como sección"
+        );
+
+        let (_, written) = embed_script_into_typ(script, TYP_RANGO);
+
+        assert_eq!(
+            written, 2,
+            "usa el modo rango: nº de bloques = nº de cabeceras, no 2 secciones `##`"
+        );
     }
 
     #[test]
