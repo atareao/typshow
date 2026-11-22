@@ -28,7 +28,7 @@ replica como nota en cada página de esa sección (rango).
 - [x] 4. Escritura replicada en el rango + tests (idempotencia).
 - [x] 5. Fallback y CLI + tests.
 - [x] 6. No-render en PDF + no-regresión.
-- [x] 7. Auditoría APROBADA, fmt/clippy/test limpios y verificación real sobre la 812 (el fix del cuerpo se halló en 7.3). Doc pendiente de archivar al mergear.
+- [x] 7. Auditoría APROBADA, fmt/clippy/test limpios y verificación real sobre la 812 (el fix del cuerpo se halló en 7.3). Doc y archivado hechos (merge PR #60, `43402c0`).
 
 ## Verificación
 
@@ -38,4 +38,4 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --
 
 ## Estado
 
-- [x] Spec aprobado por el usuario; implementado en TDD (RED→GREEN→REFACTOR) en `feature/mapeo-rango-guion`.
+- [x] COMPLETADA: spec aprobado; implementado en TDD (RED→GREEN→REFACTOR); auditoría aprobada; verificación real sobre la 812; doc y archivado (merge PR #60, `43402c0`).
