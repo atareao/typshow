@@ -316,3 +316,93 @@ también mientras hay una edición de nota en curso.
 - **WHEN** el usuario pulsa `Ctrl+Q`
 - **THEN** la aplicación termina por completo
 - **AND** el atajo no se entrega al editor como texto ni se consume como edición
+
+### Requirement: Panel de notas redimensionable
+
+La ventana de presentador SHALL permitir ajustar el **ancho** del panel de notas
+arrastrando el asa situada entre la previsualización y el panel. El ancho SHALL quedar
+siempre comprendido entre `NOTES_PANEL_MIN_WIDTH` y `NOTES_PANEL_MAX_WIDTH` (inclusive),
+y el ancho elegido SHALL **persistir entre sesiones**, restaurándose al arrancar. El
+ancho por defecto, cuando no hay preferencia guardada, SHALL ser `NOTES_PANEL_WIDTH`.
+
+#### Scenario: Ajuste por arrastre
+
+- **GIVEN** la ventana de presentador con el panel de notas visible
+- **WHEN** el usuario arrastra el asa `handle-notas` hacia la izquierda
+- **THEN** el ancho del panel aumenta de forma continua siguiendo el puntero
+
+#### Scenario: Límite mínimo
+
+- **GIVEN** un ancho actual cercano al mínimo
+- **WHEN** el usuario arrastra el asa de modo que el ancho quede por debajo del mínimo
+- **THEN** el ancho se fija en `NOTES_PANEL_MIN_WIDTH` y no disminuye más
+
+#### Scenario: Límite máximo
+
+- **GIVEN** un ancho actual cercano al máximo
+- **WHEN** el usuario arrastra el asa de modo que el ancho supere el máximo
+- **THEN** el ancho se fija en `NOTES_PANEL_MAX_WIDTH` y no aumenta más
+
+#### Scenario: Persistencia al soltar
+
+- **GIVEN** un ancho ajustado por arrastre distinto del guardado
+- **WHEN** el usuario suelta el asa
+- **THEN** el ancho saneado se escribe en la preferencia de ancho de notas
+
+#### Scenario: Restauración al arrancar
+
+- **GIVEN** una preferencia de ancho de notas guardada y válida
+- **WHEN** la app arranca
+- **THEN** el panel de notas se muestra con ese ancho
+
+#### Scenario: Preferencia inválida o ausente
+
+- **GIVEN** una preferencia de ancho de notas ausente, no numérica o fuera de rango
+- **WHEN** la app arranca
+- **THEN** el panel de notas usa `NOTES_PANEL_WIDTH` como ancho por defecto
+
+#### Scenario: Feedback de cursor
+
+- **GIVEN** el panel de notas visible
+- **WHEN** el puntero se sitúa sobre el asa y durante el arrastre
+- **THEN** el cursor indica redimensionado horizontal
+
+### Requirement: Botón «Importar guion» en el panel de notas
+
+El panel de notas SHALL ofrecer un botón **«Importar guion»**, visible cuando hay un
+documento `.typ` cargado. Al pulsarlo SHALL abrirse un diálogo de fichero filtrado a `.md`
+para elegir el guion; al elegir uno SHALL importarse en el `.typ` abierto (embebido + refresco
+de notas) y SHALL mostrarse un **aviso efímero** con el resultado. El botón SHALL mostrarse
+con icono y etiqueta, como el resto de acciones del panel. Sin documento cargado, el botón
+MUST NOT abrir el diálogo y SHALL mostrarse un error. Mientras haya un diálogo en curso
+MUST NOT abrirse otro (sin reentradas).
+
+#### Scenario: Abrir el diálogo de guion
+
+- **GIVEN** un `.typ` cargado
+- **WHEN** el usuario pulsa «Importar guion»
+- **THEN** se abre un diálogo de fichero filtrado a `.md`
+
+#### Scenario: Importar el guion elegido
+
+- **GIVEN** el diálogo de guion abierto
+- **WHEN** el usuario elige un `.md`
+- **THEN** el guion se embebe en el `.typ` abierto y el panel de notas se refresca con el resultado
+
+#### Scenario: Sin documento cargado
+
+- **GIVEN** que no hay ningún `.typ` cargado
+- **WHEN** el usuario intenta importar un guion
+- **THEN** no se abre el diálogo y se muestra un error
+
+#### Scenario: Sin reentradas
+
+- **GIVEN** un diálogo de guion en curso
+- **WHEN** el usuario vuelve a pulsar «Importar guion»
+- **THEN** no se abre un segundo diálogo
+
+#### Scenario: Feedback del resultado
+
+- **GIVEN** un guion importado con éxito
+- **WHEN** termina la importación
+- **THEN** se muestra, de forma efímera, el número de bloques importados

@@ -24,4 +24,4 @@ sin mostrar los marcadores.
 - [x] 3. Guarda `!inner.starts_with('*')` para no perder marcadores sin cerrar.
 - [x] 4. Auditoría `@rust-reviewer`: aprobado; nit del contrato de la guarda aplicado.
 - [x] 5. `cargo fmt` y clippy 1.100 limpios; `cargo test` en verde.
-- [ ] 6. Archivar el change OpenSpec al mergear.
+- [x] 6. Change OpenSpec archivado al mergear.

@@ -15,8 +15,11 @@ use typshow::gpui_ui::icons;
 use typshow::gpui_ui::presenter::{PresenterView, window_title};
 use typshow::gpui_ui::quits_app_on_close;
 
-/// Mensaje de uso que se muestra cuando falta el fichero `.typ`.
-const USAGE: &str = "Uso: typshow <fichero.typ>";
+/// Mensaje de uso que se muestra cuando falta el fichero `.typ` o se pide ayuda.
+const USAGE: &str =
+    "Uso: typshow <fichero.typ>\n     typshow guion-embed <guion.md> <presentacion.typ>";
+/// Uso específico del subcomando de conversión de guion.
+const GUION_EMBED_USAGE: &str = "Uso: typshow guion-embed <guion.md> <presentacion.typ>";
 
 fn main() {
     tracing_subscriber::fmt()
@@ -26,7 +29,28 @@ fn main() {
         )
         .init();
 
-    let path = std::env::args().nth(1);
+    let args: Vec<String> = std::env::args().collect();
+
+    // `guion-embed` es una utilidad de línea de comandos: convierte un guion
+    // Markdown en bloques embebidos del `.typ` y termina sin abrir ventanas.
+    if args.get(1).map(String::as_str) == Some("guion-embed") {
+        match (args.get(2), args.get(3)) {
+            (Some(script), Some(typ)) => match typshow::guion_embed_files(script, typ) {
+                Ok(written) => println!("Bloques de guion escritos: {written}"),
+                Err(error) => {
+                    eprintln!("Error convirtiendo el guion: {error}");
+                    std::process::exit(1);
+                }
+            },
+            _ => {
+                eprintln!("{GUION_EMBED_USAGE}");
+                std::process::exit(2);
+            }
+        }
+        return;
+    }
+
+    let path = args.get(1).cloned();
 
     // `-h`/`--help` se resuelve antes de abrir ninguna ventana para que
     // funcione también sin servidor gráfico. El usuario lo pide explícitamente,

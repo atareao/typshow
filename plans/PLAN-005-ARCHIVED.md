@@ -21,4 +21,4 @@ Que la app recuerde si el usuario eligió tema claro u oscuro y arranque con él
 - [x] 3. Tests de `Deck` (persistencia+recarga; sin ruta no escribe) e implementación.
 - [x] 4. Auditoría `@rust-reviewer`: hallazgo (test no determinista) corregido.
 - [x] 5. `cargo fmt` y clippy 1.100 limpios; `cargo test` 174 lib + 2 integración en verde.
-- [ ] 6. Archivar el change OpenSpec al mergear.
+- [x] 6. Change OpenSpec archivado al mergear.

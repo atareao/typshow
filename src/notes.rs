@@ -171,13 +171,17 @@ impl Notes {
         Ok(())
     }
 
+    /// Reimporta las notas desde el documento Typst sin destruir nada.
+    ///
+    /// La reimportación es selectiva por hash: solo se refrescan las páginas
+    /// cuyo bloque embebido cambió y que no tengan ediciones locales (ver
+    /// [`NotesDb::migrate_from_typ`]). Nunca se vacía la tabla.
     pub fn reimport(
         &mut self,
         typ_content: &str,
         total_pages: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref db) = self.db {
-            db.clear_all()?;
             db.migrate_from_typ(typ_content, total_pages)?;
             self.total_pages = total_pages;
             self.load_page(self.current_page);
@@ -189,6 +193,18 @@ impl Notes {
         if let Some(ref db) = self.db {
             db.set_heading(self.current_page, heading)?;
             self.heading = heading.map(|s| s.to_string());
+        }
+        Ok(())
+    }
+
+    /// Guarda el heading editado por el usuario en la página actual,
+    /// protegiéndolo de la reimportación (ver [`NotesDb::save_user_heading`]).
+    fn save_user_heading(
+        &mut self,
+        heading: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(ref db) = self.db {
+            db.save_user_heading(self.current_page, heading)?;
         }
         Ok(())
     }
@@ -205,7 +221,8 @@ impl Notes {
         } else {
             Some(self.heading_edit_buffer.trim().to_string())
         };
-        self.set_heading(new_heading.as_deref())?;
+        // El heading editado a mano se protege de la reimportación.
+        self.save_user_heading(new_heading.as_deref())?;
         self.heading = new_heading;
         self.heading_editing = false;
         self.heading_edit_buffer.clear();
@@ -448,5 +465,53 @@ mod tests {
         assert_eq!(n.current_page, 5);
         assert!(n.note_content.is_none());
         assert!(!n.editing);
+    }
+
+    #[test]
+    fn ciclo_sembrado_edicion_reimport_export() {
+        use crate::notes_db::export_to_typ;
+
+        let dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = dir.join(format!("typshow-ciclo-{}-{unique}.typ", std::process::id()));
+        let path_str = path.to_string_lossy().to_string();
+
+        let v1 =
+            "== Uno\nslide uno\n// >>> typshow:notes\n// guion uno\n// >>> typshow:notes:end\n";
+        std::fs::write(&path, v1).unwrap();
+
+        // 1. Sembrado desde el bloque embebido.
+        let mut notes = Notes::with_db(&path_str, v1, 2);
+        notes.load_page(1);
+        assert_eq!(notes.note_content.as_deref(), Some("guion uno"));
+
+        // 2. Edición local de la nota.
+        notes.start_edit();
+        notes.edit_buffer = "nota editada".to_string();
+        notes.dirty = true;
+        notes.save_current().unwrap();
+
+        // 3. El bloque del fichero cambia: la edición local se respeta.
+        let v2 = "== Uno\nslide uno\n// >>> typshow:notes\n// guion cambiado\n// >>> typshow:notes:end\n";
+        std::fs::write(&path, v2).unwrap();
+        notes.reimport(v2, 2).unwrap();
+        assert_eq!(notes.note_content.as_deref(), Some("nota editada"));
+
+        // 4. Export: la nota editada vuelve al `.typ` sin tocar el resto.
+        let records = notes.db.as_ref().unwrap().all_records().unwrap();
+        export_to_typ(&path_str, &records).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("// nota editada"), "salida: {out}");
+        assert!(!out.contains("guion cambiado"));
+        assert!(out.starts_with("== Uno\nslide uno\n"));
+
+        drop(notes);
+        std::fs::remove_file(&path).ok();
+        for ext in ["typshow.db", "typshow.db-wal", "typshow.db-shm"] {
+            std::fs::remove_file(path.with_extension(ext)).ok();
+        }
     }
 }

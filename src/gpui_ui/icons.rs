@@ -52,11 +52,15 @@ pub const PLUS: char = '\u{E3D4}';
 pub const TRASH: char = '\u{E4A6}';
 /// Reimportar notas (`ARROWS_CLOCKWISE`).
 pub const ARROWS_CLOCKWISE: char = '\u{E094}';
+/// Exportar las notas al `.typ` (`UPLOAD_SIMPLE`).
+pub const UPLOAD_SIMPLE: char = '\u{E4C0}';
+/// Importar un guion Markdown al `.typ` (`FILE_ARROW_DOWN`).
+pub const FILE_ARROW_DOWN: char = '\u{E232}';
 /// Salir / cerrar la app (`SIGN_OUT`).
 pub const SIGN_OUT: char = '\u{E42A}';
 
 /// Todos los iconos de la interfaz, para validarlos de una vez.
-pub const ALL: [char; 17] = [
+pub const ALL: [char; 19] = [
     FOLDER_OPEN,
     MOON,
     SUN,
@@ -73,6 +77,8 @@ pub const ALL: [char; 17] = [
     PLUS,
     TRASH,
     ARROWS_CLOCKWISE,
+    UPLOAD_SIMPLE,
+    FILE_ARROW_DOWN,
     SIGN_OUT,
 ];
 
@@ -147,7 +153,7 @@ mod tests {
     fn los_codepoints_coinciden_con_la_tabla_dorada() {
         // Tabla dorada: (nombre, constante, codepoint documentado). Un typo en
         // una constante o un cambio de codepoint rompe este test.
-        let tabla: [(&str, char, char); 17] = [
+        let tabla: [(&str, char, char); 18] = [
             ("FOLDER_OPEN", FOLDER_OPEN, '\u{E256}'),
             ("MOON", MOON, '\u{E330}'),
             ("SUN", SUN, '\u{E472}'),
@@ -164,6 +170,7 @@ mod tests {
             ("PLUS", PLUS, '\u{E3D4}'),
             ("TRASH", TRASH, '\u{E4A6}'),
             ("ARROWS_CLOCKWISE", ARROWS_CLOCKWISE, '\u{E094}'),
+            ("FILE_ARROW_DOWN", FILE_ARROW_DOWN, '\u{E232}'),
             ("SIGN_OUT", SIGN_OUT, '\u{E42A}'),
         ];
         for (nombre, actual, esperado) in tabla {

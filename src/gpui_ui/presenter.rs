@@ -2,6 +2,8 @@
 
 use std::borrow::Cow;
 use std::ops::Range;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, CursorStyle, Element, ElementId,
@@ -14,17 +16,24 @@ use gpui::{
 };
 
 use super::audience::AudienceView;
+use super::config;
 use super::deck::Deck;
 use super::edit::TextEdit;
 use super::icons;
 use super::keys::{apply_nav, clamp_boundary, quit_shortcut};
 use super::theme::{
     BORDER_WIDTH, CARET_WIDTH, CONTROL_HEIGHT, CONTROL_PADDING_X, FONT_FAMILY_MONO, FONT_SIZE_BODY,
-    FONT_SIZE_CAPTION, FONT_SIZE_SUBTITLE, FONT_SIZE_TITLE, NOTES_PANEL_WIDTH, PANE_PADDING,
-    Palette, RADIUS_BUTTON, RADIUS_CARD, SPACING_MD, SPACING_SM, SPACING_XXS, WINDOW_PADDING,
-    palette,
+    FONT_SIZE_CAPTION, FONT_SIZE_SUBTITLE, FONT_SIZE_TITLE, NOTES_PANEL_MAX_WIDTH,
+    NOTES_PANEL_MIN_WIDTH, NOTES_PANEL_WIDTH, PANE_PADDING, Palette, RADIUS_BUTTON, RADIUS_CARD,
+    SPACING_MD, SPACING_SM, SPACING_XXS, WINDOW_PADDING, palette,
 };
 use crate::notes::{MdElement, Notes};
+
+/// Anchura del asa que permite redimensionar el panel de notas.
+const NOTES_HANDLE_WIDTH: f32 = 6.;
+
+/// Tiempo que un aviso efímero del panel de notas permanece visible.
+const NOTES_STATUS_TTL: Duration = Duration::from_secs(3);
 
 /// Ejecuta `action` sobre el `Deck` compartido y notifica a los observers.
 fn run<C: AppContext>(deck: &Entity<Deck>, action: fn(&mut Deck), cx: &mut C) {
@@ -32,6 +41,53 @@ fn run<C: AppContext>(deck: &Entity<Deck>, action: fn(&mut Deck), cx: &mut C) {
         action(deck);
         cx.notify();
     });
+}
+
+// ---------------------------------------------------------------------------
+// Geometría del panel de notas (lógica pura, sin GPUI).
+//
+// Requisito «Panel de notas redimensionable» de
+// `openspec/changes/notas-redimensionable/specs/gpui-ui/spec.md`.
+// ---------------------------------------------------------------------------
+
+/// Recorta `width` al rango `[NOTES_PANEL_MIN_WIDTH, NOTES_PANEL_MAX_WIDTH]`.
+pub fn clamp_notes_width(width: f32) -> f32 {
+    width.clamp(NOTES_PANEL_MIN_WIDTH, NOTES_PANEL_MAX_WIDTH)
+}
+
+/// Ancho del panel tras arrastrar el asa `dx` píxeles horizontales.
+///
+/// El asa está a la derecha del área de página, de modo que arrastrar hacia la
+/// izquierda (`dx` negativo) **aumenta** el ancho del panel. El resultado queda
+/// siempre dentro de los límites.
+pub fn notes_width_after_drag(start_width: f32, dx: f32) -> f32 {
+    clamp_notes_width(start_width - dx)
+}
+
+/// Ancho inicial del panel de notas: la preferencia guardada o
+/// [`NOTES_PANEL_WIDTH`] cuando no hay ninguna válida. La carga descarta los
+/// valores ausentes, no numéricos o fuera de rango (ver `config::load_notes_width_from`),
+/// de modo que aquí basta con el valor por defecto como respaldo.
+fn initial_notes_width(preference: Option<f32>) -> f32 {
+    preference.unwrap_or(NOTES_PANEL_WIDTH)
+}
+
+/// Cursor que impone la fila principal: redimensionado horizontal mientras se
+/// arrastra el asa; fuera del arrastre, ninguno (manda el del hijo bajo el
+/// puntero, p. ej. el `IBeam` del editor de notas).
+fn row_cursor(dragging: bool) -> Option<CursorStyle> {
+    dragging.then_some(CursorStyle::ResizeLeftRight)
+}
+
+/// Persiste el ancho saneado en la preferencia. Sin ruta (no hay `config_dir`)
+/// no hace nada; un fallo de E/S se registra con `warn!` (no debe afectar al
+/// arrastre en curso).
+fn persist_notes_width(path: Option<&Path>, width: f32) {
+    if let Some(path) = path
+        && let Err(e) = config::save_notes_width_to(path, width)
+    {
+        tracing::warn!("no se pudo guardar el ancho del panel de notas: {e}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,13 +1265,23 @@ fn with_selection_handlers<E: InteractiveElement>(
 ///
 /// `deck`, `focus_handle` y los campos del editor (`note_edit`, `heading_edit`,
 /// `*_layout`) los consume el puente `EntityInputHandler`; `is_selecting` marca
-/// el arrastre de selección con el ratón en curso.
+/// el arrastre de selección con el ratón en curso y los campos `notes_*` el
+/// ancho del panel de notas y el arrastre de su asa.
 pub struct PresenterView {
     deck: Entity<Deck>,
     focus_handle: FocusHandle,
     audience: Option<WindowHandle<AudienceView>>,
-    /// Hay un diálogo de fichero abierto (guard de reentrada).
+    /// Hay un diálogo de fichero abierto (guard de reentrada). Cubre tanto el
+    /// diálogo de `.typ` como el de importar guion: mientras haya uno en curso no
+    /// se abre otro.
     dialog_open: bool,
+    /// Aviso efímero del panel de notas (resultado de «Importar guion»), que se
+    /// limpia solo pasados [`NOTES_STATUS_TTL`].
+    notes_status: Option<String>,
+    /// Generación del aviso vigente: se incrementa en cada
+    /// [`PresenterView::set_notes_status`] y solo el temporizador de la última
+    /// llamada puede retirar el mensaje.
+    notes_status_gen: u64,
     /// Modelo del editor del cuerpo de la nota, activo mientras se edita.
     note_edit: Option<TextEdit>,
     /// Modelo del editor del título, activo mientras se edita.
@@ -1226,6 +1292,16 @@ pub struct PresenterView {
     heading_layout: Option<EditorLayout>,
     /// Arrastre de selección con el ratón en curso.
     is_selecting: bool,
+    /// Ancho actual del panel de notas en píxeles (lo ajusta el asa `handle-notas`).
+    notes_width: f32,
+    /// Fichero donde se persiste `notes_width` (`None` sin `config_dir`).
+    notes_width_path: Option<PathBuf>,
+    /// Hay un arrastre del asa de notas en curso.
+    notes_dragging: bool,
+    /// Posición horizontal del puntero al empezar el arrastre del asa.
+    notes_drag_start_x: Pixels,
+    /// Ancho del panel al empezar el arrastre del asa.
+    notes_drag_start_width: f32,
     /// Ruta del documento para la que se calculó [`Self::window_title`].
     title_path: Option<String>,
     /// Último título aplicado a la ventana (para no repetir `set_window_title`).
@@ -1237,6 +1313,17 @@ pub struct PresenterView {
 impl PresenterView {
     /// Crea la vista del presentador para la `deck` compartida.
     pub fn new(deck: Entity<Deck>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::new_with(deck, config::notes_width_path(), window, cx)
+    }
+
+    /// Igual que [`PresenterView::new`] con la ruta de la preferencia de ancho
+    /// inyectada (los tests apuntan a un directorio temporal).
+    fn new_with(
+        deck: Entity<Deck>,
+        notes_width_path: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
         let _sub = cx.observe(&deck, |_this, _deck, cx| cx.notify());
@@ -1258,16 +1345,28 @@ impl PresenterView {
             .ok();
         });
 
+        let notes_width = initial_notes_width(
+            notes_width_path
+                .as_deref()
+                .and_then(config::load_notes_width_from),
+        );
         let mut view = Self {
             deck,
             focus_handle,
             audience: None,
             dialog_open: false,
+            notes_status: None,
+            notes_status_gen: 0,
             note_edit: None,
             heading_edit: None,
             note_layout: None,
             heading_layout: None,
             is_selecting: false,
+            notes_width,
+            notes_width_path,
+            notes_dragging: false,
+            notes_drag_start_x: px(0.),
+            notes_drag_start_width: notes_width,
             title_path: None,
             window_title: String::new(),
             _sub,
@@ -1411,6 +1510,84 @@ impl PresenterView {
         .detach();
     }
 
+    /// Abre el diálogo para elegir un guion Markdown e importarlo al `.typ`.
+    ///
+    /// Mismo patrón que [`PresenterView::open_file_dialog`]: `rfd` asíncrono en el
+    /// executor de fondo y `dialog_open` como guardia de reentrada (no se abre un
+    /// segundo diálogo mientras haya uno en curso). Sin documento cargado no se
+    /// abre nada y se avisa en el panel.
+    fn import_guion_dialog(&mut self, cx: &mut Context<Self>) {
+        if self.deck.read(cx).file_path.is_none() {
+            self.set_notes_status("No hay documento cargado".to_string(), cx);
+            return;
+        }
+        if self.dialog_open {
+            return;
+        }
+        self.dialog_open = true;
+        cx.notify();
+        let deck = self.deck.clone();
+        cx.spawn(async move |this, cx| {
+            let picked = cx
+                .background_spawn(async {
+                    rfd::AsyncFileDialog::new()
+                        .add_filter("Markdown", &["md"])
+                        .set_title("Importar guion (Markdown)")
+                        .pick_file()
+                        .await
+                        .map(|handle| handle.path().to_path_buf())
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.dialog_open = false;
+                if let Some(path) = picked {
+                    let path = path.to_string_lossy().to_string();
+                    // El diálogo corre en el executor de fondo, pero el E/S de
+                    // `Deck::import_guion` (leer el `.md`, embeber, escribir el
+                    // `.typ`, reimportar) se queda en el hilo de UI a propósito:
+                    // necesita `Deck::typ_content` (privado de `gpui_ui::deck`) y
+                    // el estado del `Deck` solo se puede mutar con un `App`, que no
+                    // existe en el executor de fondo. Bajarlo exigiría duplicar
+                    // desde aquí el contrato aprobado de `Deck::import_guion` o
+                    // exponer su estado interno; la vía limpia sería un
+                    // `Deck::import_guion_async` en `deck.rs` (patrón de
+                    // `Deck::open_file_async`), fuera del alcance de este cambio.
+                    match deck.update(cx, |deck, _cx| deck.import_guion(&path)) {
+                        Ok(n) => this.set_notes_status(format!("{n} bloques importados"), cx),
+                        Err(e) => this.set_notes_status(e, cx),
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Muestra `msg` en el panel de notas y lo limpia solo pasados [`NOTES_STATUS_TTL`].
+    ///
+    /// El temporizador vive en el executor de fondo, así que el hilo de UI no se
+    /// bloquea. Cada temporizador captura su generación y solo retira el aviso si
+    /// sigue siendo la vigente: un temporizador caducado nunca borra un mensaje
+    /// posterior, aunque el texto coincida.
+    fn set_notes_status(&mut self, msg: String, cx: &mut Context<Self>) {
+        self.notes_status = Some(msg);
+        self.notes_status_gen = self.notes_status_gen.wrapping_add(1);
+        let generation = self.notes_status_gen;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(NOTES_STATUS_TTL).await;
+            this.update(cx, |this, cx| {
+                if this.notes_status_gen == generation {
+                    this.notes_status = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Ejecuta `f` sobre el `Deck` desde un handler de la vista.
     fn with_deck(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Deck)) {
         self.deck.update(cx, |deck, cx| {
@@ -1426,6 +1603,10 @@ impl PresenterView {
         let editing = notes.editing;
         let heading = notes.heading.clone();
         let heading_editing = notes.heading_editing;
+        // El botón de importar guion depende del documento cargado, no de la base
+        // de notas: se ofrece siempre que haya un `.typ` abierto.
+        let has_doc = self.deck.read(cx).file_path.is_some();
+        let status = self.notes_status.clone();
 
         let body: gpui::AnyElement = if editing {
             div()
@@ -1577,6 +1758,20 @@ impl PresenterView {
                     ),
             )
             .child(
+                control_neutral("notes-exportar", p)
+                    .child(icons::label(icons::UPLOAD_SIMPLE, "Exportar"))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _e, _w, cx| {
+                            this.with_deck(cx, |d| {
+                                if let Err(e) = d.export_notes() {
+                                    d.error = Some(e);
+                                }
+                            })
+                        }),
+                    ),
+            )
+            .child(
                 control_neutral("notes-titulo", p)
                     .child(icons::label(icons::PENCIL_SIMPLE, "Título"))
                     .on_mouse_down(
@@ -1588,7 +1783,7 @@ impl PresenterView {
             );
 
         div()
-            .w(px(NOTES_PANEL_WIDTH))
+            .w(px(self.notes_panel_width()))
             .h_full()
             .flex()
             .flex_col()
@@ -1679,6 +1874,99 @@ impl PresenterView {
             }))
             .child(body)
             .children((available && !editing && !heading_editing).then_some(actions))
+            .children((has_doc && !editing && !heading_editing).then(|| {
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_row()
+                    .gap(px(SPACING_SM))
+                    .flex_wrap()
+                    .child(
+                        control_neutral("notes-importar-guion", p)
+                            .child(icons::label(icons::FILE_ARROW_DOWN, "Importar guion"))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _e, _w, cx| this.import_guion_dialog(cx)),
+                            ),
+                    )
+            }))
+            .children(status.map(|msg| {
+                div()
+                    .w_full()
+                    .overflow_hidden()
+                    .text_size(px(FONT_SIZE_CAPTION))
+                    .text_color(p.muted)
+                    .child(msg)
+            }))
+    }
+
+    /// Ancho efectivo del panel de notas: `notes_width` acotado a los límites
+    /// (el estado ya viene saneado, pero se protege ante cualquier asignación).
+    fn notes_panel_width(&self) -> f32 {
+        clamp_notes_width(self.notes_width)
+    }
+
+    /// Asa vertical entre la previsualización y el panel de notas.
+    ///
+    /// Arrastrarla en horizontal ajusta `notes_width` en vivo y, al soltar, lo
+    /// persiste. El cursor (`ResizeLeftRight`, `ew-resize`) da el feedback de
+    /// redimensionado horizontal.
+    fn notes_handle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("handle-notas")
+            .w(px(NOTES_HANDLE_WIDTH))
+            .h_full()
+            .flex_shrink_0()
+            .cursor(CursorStyle::ResizeLeftRight)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, _window, cx| {
+                    this.begin_notes_drag(event.position.x, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _event: &MouseUpEvent, _window, cx| {
+                    this.end_notes_drag(cx);
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _event: &MouseUpEvent, _window, cx| {
+                    this.end_notes_drag(cx);
+                }),
+            )
+    }
+
+    /// Empieza el arrastre del asa: recuerda la posición del puntero y el ancho
+    /// de partida para calcular el desplazamiento relativo.
+    fn begin_notes_drag(&mut self, x: Pixels, cx: &mut Context<Self>) {
+        self.notes_dragging = true;
+        self.notes_drag_start_x = x;
+        self.notes_drag_start_width = self.notes_width;
+        cx.notify();
+    }
+
+    /// Aplica el desplazamiento `dx` del puntero al ancho del panel, repintando
+    /// solo si el ancho cambia (el recorte en los límites evita avisos inútiles).
+    fn drag_notes(&mut self, x: Pixels, cx: &mut Context<Self>) {
+        let dx = (x - self.notes_drag_start_x).as_f32();
+        let width = notes_width_after_drag(self.notes_drag_start_width, dx);
+        if width != self.notes_width {
+            self.notes_width = width;
+            cx.notify();
+        }
+    }
+
+    /// Termina el arrastre del asa y persiste el ancho saneado. Idempotente: las
+    /// dos vías de fin de arrastre (`mouse_up` dentro y fuera del asa) la llaman.
+    fn end_notes_drag(&mut self, cx: &mut Context<Self>) {
+        if !self.notes_dragging {
+            return;
+        }
+        self.notes_dragging = false;
+        persist_notes_width(self.notes_width_path.as_deref(), self.notes_width);
+        cx.notify();
     }
 }
 
@@ -1840,13 +2128,26 @@ impl Render for PresenterView {
             .child(current_pane)
             .child(next_pane);
 
-        let main_row = div()
+        let mut main_row = div()
             .flex()
             .flex_row()
             .flex_1()
             .min_h_0()
+            // El arrastre del asa sigue el puntero por toda la fila: el asa es
+            // estrecha y el puntero sale de ella en cuanto se mueve.
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if this.notes_dragging && event.pressed_button == Some(MouseButton::Left) {
+                    this.drag_notes(event.position.x, cx);
+                }
+            }))
             .child(page_area)
+            .children(notes_visible.then(|| self.notes_handle(cx)))
             .children(notes_visible.then(|| self.notes_panel(cx, &p)));
+        if notes_visible && let Some(cursor) = row_cursor(self.notes_dragging) {
+            // Durante el arrastre el puntero está sobre la fila (no sobre el asa
+            // de 6 px): mantiene el cursor de redimensionado en toda ella.
+            main_row = main_row.cursor(cursor);
+        }
 
         let projection_label = icons::label(
             icons::DESKTOP,
@@ -4854,5 +5155,194 @@ mod window_close_tests {
             !other_quits.get(),
             "el cierre no debe atribuirse a otra ventana (la audiencia no cierra la app)"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests del panel de notas redimensionable.
+//
+// Requisito «Panel de notas redimensionable» de
+// `openspec/changes/notas-redimensionable/specs/gpui-ui/spec.md`: geometría
+// pura, arranque desde la preferencia, ancho tomado del estado y persistencia
+// al soltar el asa.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod notes_width_tests {
+    use super::*;
+    use gpui::TestAppContext;
+
+    /// Directorio temporal único por test (evita colisiones entre tests paralelos).
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("typshow_notes_width_test_{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Crea un `PresenterView` con la ruta de preferencia de ancho inyectada,
+    /// sobre un deck vacío y sin proyección (no abre la ventana de audiencia).
+    fn presenter_with_width_path(
+        cx: &mut TestAppContext,
+        path: Option<PathBuf>,
+    ) -> (Entity<PresenterView>, &mut gpui::VisualTestContext) {
+        let mut deck = Deck::empty();
+        deck.projection = false;
+        let deck = cx.update(|app| app.new(|_| deck));
+        cx.add_window_view(|window, cx| PresenterView::new_with(deck, path, window, cx))
+    }
+
+    #[test]
+    fn clamp_notas_min_max() {
+        assert_eq!(clamp_notes_width(10.), NOTES_PANEL_MIN_WIDTH);
+        assert_eq!(clamp_notes_width(10_000.), NOTES_PANEL_MAX_WIDTH);
+        assert_eq!(clamp_notes_width(400.), 400.);
+        // Los límites son inclusivos.
+        assert_eq!(
+            clamp_notes_width(NOTES_PANEL_MIN_WIDTH),
+            NOTES_PANEL_MIN_WIDTH
+        );
+        assert_eq!(
+            clamp_notes_width(NOTES_PANEL_MAX_WIDTH),
+            NOTES_PANEL_MAX_WIDTH
+        );
+    }
+
+    #[test]
+    fn ancho_tras_arrastre() {
+        // Arrastrar a la izquierda (dx negativo) aumenta el ancho del panel.
+        assert_eq!(notes_width_after_drag(NOTES_PANEL_WIDTH, -40.), 360.);
+        // Arrastrar a la derecha lo reduce.
+        assert_eq!(notes_width_after_drag(NOTES_PANEL_WIDTH, 40.), 280.);
+        // El recorte se aplica en ambos sentidos.
+        assert_eq!(
+            notes_width_after_drag(NOTES_PANEL_WIDTH, -10_000.),
+            NOTES_PANEL_MAX_WIDTH
+        );
+        assert_eq!(
+            notes_width_after_drag(NOTES_PANEL_WIDTH, 10_000.),
+            NOTES_PANEL_MIN_WIDTH
+        );
+    }
+
+    #[gpui::test]
+    fn arranque_usa_preferencia_o_default(cx: &mut TestAppContext) {
+        let dir = temp_dir("arranque");
+        let path = dir.join(config::NOTES_WIDTH_FILE);
+
+        // Sin preferencia guardada: ancho por defecto.
+        let (view, cx) = presenter_with_width_path(cx, None);
+        view.update_in(cx, |view, _window, _cx| {
+            assert_eq!(view.notes_width, NOTES_PANEL_WIDTH);
+        });
+
+        // Con preferencia válida: el ancho guardado.
+        config::save_notes_width_to(&path, 480.).unwrap();
+        let (view, cx) = presenter_with_width_path(cx, Some(path.clone()));
+        view.update_in(cx, |view, _window, _cx| {
+            assert_eq!(view.notes_width, 480.);
+        });
+
+        // Preferencia corrupta: vuelve al ancho por defecto.
+        std::fs::write(&path, "ancho\n").unwrap();
+        let (view, cx) = presenter_with_width_path(cx, Some(path.clone()));
+        view.update_in(cx, |view, _window, _cx| {
+            assert_eq!(view.notes_width, NOTES_PANEL_WIDTH);
+        });
+
+        // Preferencia fuera de rango: también vuelve al ancho por defecto (no se
+        // recorta al límite; el recorte es cosa del guardado).
+        for out_of_range in ["10000\n", "10\n"] {
+            std::fs::write(&path, out_of_range).unwrap();
+            let (view, cx) = presenter_with_width_path(cx, Some(path.clone()));
+            view.update_in(cx, |view, _window, _cx| {
+                assert_eq!(
+                    view.notes_width, NOTES_PANEL_WIDTH,
+                    "valor {out_of_range:?} fuera de rango: ancho por defecto"
+                );
+            });
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn row_cursor_solo_durante_el_arrastre() {
+        assert_eq!(
+            row_cursor(false),
+            None,
+            "sin arrastre la fila no impone cursor"
+        );
+        assert_eq!(row_cursor(true), Some(CursorStyle::ResizeLeftRight));
+    }
+
+    #[gpui::test]
+    fn panel_usa_ancho_de_estado(cx: &mut TestAppContext) {
+        let (view, cx) = presenter_with_width_path(cx, None);
+
+        view.update_in(cx, |view, _window, _cx| {
+            // Arranca con el ancho por defecto…
+            assert_eq!(view.notes_panel_width(), NOTES_PANEL_WIDTH);
+            // …pero el panel toma el ancho del estado, no la constante.
+            view.notes_width = 500.;
+            assert_eq!(view.notes_panel_width(), 500.);
+            assert_ne!(view.notes_panel_width(), NOTES_PANEL_WIDTH);
+            // Un ancho fuera de rango se recorta antes de pintarlo.
+            view.notes_width = 10_000.;
+            assert_eq!(view.notes_panel_width(), NOTES_PANEL_MAX_WIDTH);
+        });
+    }
+
+    #[gpui::test]
+    fn arrastre_en_vivo_persiste_al_soltar(cx: &mut TestAppContext) {
+        let dir = temp_dir("arrastre");
+        let path = dir.join(config::NOTES_WIDTH_FILE);
+        let (view, cx) = presenter_with_width_path(cx, Some(path.clone()));
+
+        view.update_in(cx, |view, _window, cx| {
+            // El arrastre sigue al puntero en vivo: hacia la izquierda el panel
+            // se ensancha `dx` píxeles.
+            view.begin_notes_drag(px(900.), cx);
+            assert!(view.notes_dragging, "el arrastre queda activo");
+            view.drag_notes(px(860.), cx);
+            assert_eq!(view.notes_width, NOTES_PANEL_WIDTH + 40.);
+
+            // En el límite máximo se detiene.
+            view.drag_notes(px(0.), cx);
+            assert_eq!(view.notes_width, NOTES_PANEL_MAX_WIDTH);
+
+            // Al soltar se persiste el ancho saneado.
+            view.end_notes_drag(cx);
+            assert!(!view.notes_dragging, "el arrastre ya terminó");
+        });
+
+        assert_eq!(
+            config::load_notes_width_from(&path),
+            Some(NOTES_PANEL_MAX_WIDTH),
+            "soltar el asa escribe el ancho saneado en la preferencia"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn soltar_persiste() {
+        let dir = temp_dir("soltar");
+        let path = dir.join(config::NOTES_WIDTH_FILE);
+
+        // Un ancho válido se escribe tal cual.
+        persist_notes_width(Some(&path), 480.);
+        assert_eq!(config::load_notes_width_from(&path), Some(480.));
+
+        // Fuera de rango: se sanea antes de escribir.
+        persist_notes_width(Some(&path), 10_000.);
+        assert_eq!(
+            config::load_notes_width_from(&path),
+            Some(NOTES_PANEL_MAX_WIDTH)
+        );
+
+        // Sin ruta de preferencia no se escribe nada ni se entra en pánico.
+        persist_notes_width(None, 480.);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
