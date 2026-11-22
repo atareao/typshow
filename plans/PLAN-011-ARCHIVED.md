@@ -28,7 +28,7 @@ arrastrando un asa, con límites mínimo/máximo y persistencia entre sesiones.
 - [x] 6. Persistencia al soltar + test.
 - [ ] 7. Auditoría, fmt/clippy/test, verificación manual, doc y archivado.
   - [x] 7.2 `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings` y `cargo test` en verde.
-  - [x] 7.1 Auditoría `@rust-reviewer` (APROBADA) · [ ] 7.3 Verificación manual (GUI) · [ ] 7.4 Doc + archivado al mergear.
+  - [x] 7.1 Auditoría `@rust-reviewer` (APROBADA) · [x] 7.3 Verificación manual (GUI) · [x] 7.4 Doc + archivado al mergear (PR #56).
 
 ## Implementación (referencias)
 
@@ -51,4 +51,4 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --
 ## Estado
 
 - [x] Implementación completa (1–6) y verificación estática/test (7.2).
-- [x] Auditoría (7.1) aprobada. Pendiente: verificación manual en GUI (7.3) y doc/archivado (7.4).
+- [x] COMPLETADA: implementación, verificación estática/test, auditoría aprobada, verificación manual en GUI y archivado (merge PR #56, `55e1cbc`).

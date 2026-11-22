@@ -43,5 +43,5 @@
 
 - [x] 7.1 Auditoría `@rust-reviewer`: APROBADA (1ª ronda: 1 bloqueante + 3 menores, remediados; re-auditada).
 - [x] 7.2 `cargo fmt --all -- --check` y `cargo clippy --all-targets -- -D warnings` limpios; `cargo test` en verde.
-- [ ] 7.3 Verificación manual: arrastrar el asa, comprobar límites y que el ancho persiste tras reiniciar.
-- [ ] 7.4 `docs/notas-redimensionable.md` creada; archivar el change al mergear.
+- [x] 7.3 Verificación manual: arrastrar el asa, comprobar límites y que el ancho persiste tras reiniciar.
+- [x] 7.4 `docs/notas-redimensionable.md` creada; change archivado al mergear (PR #56).
