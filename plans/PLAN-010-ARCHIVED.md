@@ -30,9 +30,9 @@ presentador, con reimportación selectiva y export bidireccional.
 - [x] 4. Reimport selectivo por hash, no destructivo (RED → GREEN) — `notes.rs`.
 - [x] 5. Export de la BD al `.typ`, preservando el resto (RED → GREEN).
 - [x] 6. Conversor `guion.md → bloques` como subcomando de CLI (RED → GREEN) — `main.rs`.
-- [ ] 7. Auditoría `@rust-reviewer`: aprobado. *(1ª ronda: cambios requeridos; los 13 puntos están remediados con tests — ver §8 de `openspec/changes/guion-embebido-en-typ/tasks.md`. Pendiente la re-auditoría.)*
+- [x] 7. Auditoría `@rust-reviewer`: aprobado. *(1ª ronda: cambios requeridos; los 13 puntos están remediados con tests — ver §8 de `openspec/changes/guion-embebido-en-typ/tasks.md`. Re-auditoría APROBADA por `@rust-reviewer` (PR #53).)*
 - [x] 8. `cargo fmt` y clippy (`-D warnings`) limpios; `cargo test` en verde.
-- [ ] 9. Verificación manual sobre el episodio real (invisible en PDF, visible en presentador).
+- [x] 9. Verificación manual sobre el episodio real (invisible en PDF, visible en presentador).
 - [x] 10. Crear `docs/guion-embebido.md` y archivar el change OpenSpec al mergear. *(doc creada; el `openspec archive` se hace al mergear)*
 
 ## Criterios de aceptación
