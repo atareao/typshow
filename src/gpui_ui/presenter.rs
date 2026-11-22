@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, CursorStyle, Element, ElementId,
@@ -30,6 +31,9 @@ use crate::notes::{MdElement, Notes};
 
 /// Anchura del asa que permite redimensionar el panel de notas.
 const NOTES_HANDLE_WIDTH: f32 = 6.;
+
+/// Tiempo que un aviso efímero del panel de notas permanece visible.
+const NOTES_STATUS_TTL: Duration = Duration::from_secs(3);
 
 /// Ejecuta `action` sobre el `Deck` compartido y notifica a los observers.
 fn run<C: AppContext>(deck: &Entity<Deck>, action: fn(&mut Deck), cx: &mut C) {
@@ -1267,8 +1271,17 @@ pub struct PresenterView {
     deck: Entity<Deck>,
     focus_handle: FocusHandle,
     audience: Option<WindowHandle<AudienceView>>,
-    /// Hay un diálogo de fichero abierto (guard de reentrada).
+    /// Hay un diálogo de fichero abierto (guard de reentrada). Cubre tanto el
+    /// diálogo de `.typ` como el de importar guion: mientras haya uno en curso no
+    /// se abre otro.
     dialog_open: bool,
+    /// Aviso efímero del panel de notas (resultado de «Importar guion»), que se
+    /// limpia solo pasados [`NOTES_STATUS_TTL`].
+    notes_status: Option<String>,
+    /// Generación del aviso vigente: se incrementa en cada
+    /// [`PresenterView::set_notes_status`] y solo el temporizador de la última
+    /// llamada puede retirar el mensaje.
+    notes_status_gen: u64,
     /// Modelo del editor del cuerpo de la nota, activo mientras se edita.
     note_edit: Option<TextEdit>,
     /// Modelo del editor del título, activo mientras se edita.
@@ -1342,6 +1355,8 @@ impl PresenterView {
             focus_handle,
             audience: None,
             dialog_open: false,
+            notes_status: None,
+            notes_status_gen: 0,
             note_edit: None,
             heading_edit: None,
             note_layout: None,
@@ -1495,6 +1510,84 @@ impl PresenterView {
         .detach();
     }
 
+    /// Abre el diálogo para elegir un guion Markdown e importarlo al `.typ`.
+    ///
+    /// Mismo patrón que [`PresenterView::open_file_dialog`]: `rfd` asíncrono en el
+    /// executor de fondo y `dialog_open` como guardia de reentrada (no se abre un
+    /// segundo diálogo mientras haya uno en curso). Sin documento cargado no se
+    /// abre nada y se avisa en el panel.
+    fn import_guion_dialog(&mut self, cx: &mut Context<Self>) {
+        if self.deck.read(cx).file_path.is_none() {
+            self.set_notes_status("No hay documento cargado".to_string(), cx);
+            return;
+        }
+        if self.dialog_open {
+            return;
+        }
+        self.dialog_open = true;
+        cx.notify();
+        let deck = self.deck.clone();
+        cx.spawn(async move |this, cx| {
+            let picked = cx
+                .background_spawn(async {
+                    rfd::AsyncFileDialog::new()
+                        .add_filter("Markdown", &["md"])
+                        .set_title("Importar guion (Markdown)")
+                        .pick_file()
+                        .await
+                        .map(|handle| handle.path().to_path_buf())
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.dialog_open = false;
+                if let Some(path) = picked {
+                    let path = path.to_string_lossy().to_string();
+                    // El diálogo corre en el executor de fondo, pero el E/S de
+                    // `Deck::import_guion` (leer el `.md`, embeber, escribir el
+                    // `.typ`, reimportar) se queda en el hilo de UI a propósito:
+                    // necesita `Deck::typ_content` (privado de `gpui_ui::deck`) y
+                    // el estado del `Deck` solo se puede mutar con un `App`, que no
+                    // existe en el executor de fondo. Bajarlo exigiría duplicar
+                    // desde aquí el contrato aprobado de `Deck::import_guion` o
+                    // exponer su estado interno; la vía limpia sería un
+                    // `Deck::import_guion_async` en `deck.rs` (patrón de
+                    // `Deck::open_file_async`), fuera del alcance de este cambio.
+                    match deck.update(cx, |deck, _cx| deck.import_guion(&path)) {
+                        Ok(n) => this.set_notes_status(format!("{n} bloques importados"), cx),
+                        Err(e) => this.set_notes_status(e, cx),
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Muestra `msg` en el panel de notas y lo limpia solo pasados [`NOTES_STATUS_TTL`].
+    ///
+    /// El temporizador vive en el executor de fondo, así que el hilo de UI no se
+    /// bloquea. Cada temporizador captura su generación y solo retira el aviso si
+    /// sigue siendo la vigente: un temporizador caducado nunca borra un mensaje
+    /// posterior, aunque el texto coincida.
+    fn set_notes_status(&mut self, msg: String, cx: &mut Context<Self>) {
+        self.notes_status = Some(msg);
+        self.notes_status_gen = self.notes_status_gen.wrapping_add(1);
+        let generation = self.notes_status_gen;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(NOTES_STATUS_TTL).await;
+            this.update(cx, |this, cx| {
+                if this.notes_status_gen == generation {
+                    this.notes_status = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Ejecuta `f` sobre el `Deck` desde un handler de la vista.
     fn with_deck(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Deck)) {
         self.deck.update(cx, |deck, cx| {
@@ -1510,6 +1603,10 @@ impl PresenterView {
         let editing = notes.editing;
         let heading = notes.heading.clone();
         let heading_editing = notes.heading_editing;
+        // El botón de importar guion depende del documento cargado, no de la base
+        // de notas: se ofrece siempre que haya un `.typ` abierto.
+        let has_doc = self.deck.read(cx).file_path.is_some();
+        let status = self.notes_status.clone();
 
         let body: gpui::AnyElement = if editing {
             div()
@@ -1777,6 +1874,30 @@ impl PresenterView {
             }))
             .child(body)
             .children((available && !editing && !heading_editing).then_some(actions))
+            .children((has_doc && !editing && !heading_editing).then(|| {
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_row()
+                    .gap(px(SPACING_SM))
+                    .flex_wrap()
+                    .child(
+                        control_neutral("notes-importar-guion", p)
+                            .child(icons::label(icons::FILE_ARROW_DOWN, "Importar guion"))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _e, _w, cx| this.import_guion_dialog(cx)),
+                            ),
+                    )
+            }))
+            .children(status.map(|msg| {
+                div()
+                    .w_full()
+                    .overflow_hidden()
+                    .text_size(px(FONT_SIZE_CAPTION))
+                    .text_color(p.muted)
+                    .child(msg)
+            }))
     }
 
     /// Ancho efectivo del panel de notas: `notes_width` acotado a los límites

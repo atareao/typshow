@@ -290,6 +290,46 @@ impl Deck {
         crate::export_to_typ(&path, &records).map_err(|e| e.to_string())
     }
 
+    /// Importa un guion Markdown al `.typ` cargado (embebido + reimportación).
+    ///
+    /// Lee `script_path`, embebe sus bloques en el `.typ` en memoria con el mismo
+    /// criterio que el subcomando `guion-embed` (por secciones `##` o por rangos
+    /// de tiempo, ver `crate::embed_script_into_typ`), escribe el resultado en
+    /// [`Deck::file_path`], actualiza la fuente en memoria y **reimporta** las
+    /// notas de forma selectiva (preserva las editadas a mano).
+    ///
+    /// Devuelve el número de bloques escritos. Falla si no hay documento cargado
+    /// o si el guion no aporta ningún bloque (en cuyo caso **no** escribe nada).
+    pub fn import_guion(&mut self, script_path: &str) -> Result<usize, String> {
+        let (Some(path), Some(typ_source)) = (self.file_path.clone(), self.typ_content.clone())
+        else {
+            return Err("No hay documento cargado".to_string());
+        };
+
+        let script = std::fs::read_to_string(script_path)
+            .map_err(|e| format!("No se pudo leer el guion: {e}"))?;
+        let (new_typ, written) = crate::embed_script_into_typ(&script, &typ_source);
+        if written == 0 {
+            return Err(
+                "El guion no tiene secciones `##` ni bloques por tramos de tiempo; no se \
+                 importó nada"
+                    .to_string(),
+            );
+        }
+
+        // Solo se toca el fichero si el embebido cambió algo (simetría con
+        // `guion_embed_files`: reimportar el mismo guion no reescribe).
+        if new_typ != typ_source {
+            std::fs::write(&path, &new_typ)
+                .map_err(|e| format!("No se pudo escribir el .typ: {e}"))?;
+        }
+        self.typ_content = Some(new_typ);
+        // Reimportación selectiva por hash: refresca las no editadas y conserva
+        // las editadas a mano. Guarda antes la edición en curso.
+        self.reimport_notes()?;
+        Ok(written)
+    }
+
     /// Sincroniza el estado de las notas tras cambiar de página.
     fn after_nav(&mut self) {
         if self.notes.editing
@@ -1070,5 +1110,190 @@ mod tests {
         }
         let _ = std::fs::remove_file(&path);
         cleanup_db(&path);
+    }
+
+    // --- Deck::import_guion ---------------------------------------------------
+
+    /// `.typ` de prueba con dos slides `=` y sin bloques de guion embebidos.
+    const TYP_DOS_SLIDES: &str =
+        "#set document(title: \"X\")\n\n= Uno\n\nslide uno\n\n= Dos\n\nslide dos\n";
+
+    /// Páginas del deck de prueba: portada + los dos slides del `.typ`
+    /// (misma convención que los fixtures de `notes_db`, donde el slide `n` es
+    /// la página `n`).
+    const TOTAL_DOS_SLIDES: usize = 3;
+
+    /// Guion de dos secciones `##`, en el mismo orden que los slides del `.typ`.
+    const SCRIPT_DOS_SECCIONES: &str = "## Uno\n\nGuion uno\n\n## Dos\n\nGuion dos\n";
+
+    /// Escribe `bytes` en un fichero temporal único con la extensión dada.
+    fn temp_file(tag: &str, ext: &str, bytes: &[u8]) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "typshow-deck-{tag}-{}-{unique}.{ext}",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    /// Deck con un `.typ` en disco y la base de notas abierta, sin compilar
+    /// (los tests de importación no dependen de Typst).
+    fn deck_with_typ(tag: &str, typ: &str, total: usize) -> (Deck, PathBuf) {
+        let path = temp_file(tag, "typ", typ.as_bytes());
+        let path_str = path.to_string_lossy().to_string();
+        let mut deck = Deck::empty();
+        deck.file_path = Some(path_str.clone());
+        deck.typ_content = Some(typ.to_string());
+        deck.total = total;
+        deck.notes = Notes::with_db(&path_str, typ, total);
+        (deck, path)
+    }
+
+    #[test]
+    fn import_guion_embebe_y_reimporta() {
+        let (mut deck, typ_path) = deck_with_typ("importa", TYP_DOS_SLIDES, TOTAL_DOS_SLIDES);
+        let script_path = temp_file("importa", "md", SCRIPT_DOS_SECCIONES.as_bytes());
+
+        let written = deck.import_guion(script_path.to_str().unwrap()).unwrap();
+
+        assert_eq!(written, 2, "deben escribirse los dos bloques del guion");
+        let on_disk = std::fs::read_to_string(&typ_path).unwrap();
+        assert!(
+            on_disk.contains("Guion uno"),
+            "bloque 1 en disco: {on_disk}"
+        );
+        assert!(
+            on_disk.contains("Guion dos"),
+            "bloque 2 en disco: {on_disk}"
+        );
+        assert_eq!(
+            deck.typ_content.as_deref(),
+            Some(on_disk.as_str()),
+            "la fuente en memoria debe reflejar el .typ reescrito"
+        );
+
+        deck.notes.load_page(1);
+        assert_eq!(deck.notes.note_content.as_deref(), Some("Guion uno"));
+        deck.notes.load_page(2);
+        assert_eq!(deck.notes.note_content.as_deref(), Some("Guion dos"));
+
+        let _ = std::fs::remove_file(&script_path);
+        let _ = std::fs::remove_file(&typ_path);
+        cleanup_db(&typ_path);
+    }
+
+    #[test]
+    fn import_guion_preserva_editadas() {
+        let (mut deck, typ_path) = deck_with_typ("preserva", TYP_DOS_SLIDES, TOTAL_DOS_SLIDES);
+        deck.notes
+            .db
+            .as_ref()
+            .expect("base de notas abierta")
+            .save(1, "nota editada a mano")
+            .unwrap();
+        let script_path = temp_file("preserva", "md", SCRIPT_DOS_SECCIONES.as_bytes());
+
+        let written = deck.import_guion(script_path.to_str().unwrap()).unwrap();
+
+        assert_eq!(written, 2);
+        deck.notes.load_page(1);
+        assert_eq!(
+            deck.notes.note_content.as_deref(),
+            Some("nota editada a mano"),
+            "la nota editada a mano se preserva"
+        );
+        assert!(
+            deck.notes.db.as_ref().unwrap().load(1).unwrap().edited,
+            "la nota preservada sigue marcada como editada"
+        );
+        deck.notes.load_page(2);
+        assert_eq!(
+            deck.notes.note_content.as_deref(),
+            Some("Guion dos"),
+            "la nota no editada se refresca con el guion"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+        let _ = std::fs::remove_file(&typ_path);
+        cleanup_db(&typ_path);
+    }
+
+    #[test]
+    fn import_guion_sin_bloques_avisa() {
+        let (mut deck, typ_path) = deck_with_typ("sin-bloques", TYP_DOS_SLIDES, TOTAL_DOS_SLIDES);
+        let script_path = temp_file(
+            "sin-bloques",
+            "md",
+            b"texto suelto, sin secciones `##` ni tramos de tiempo\n",
+        );
+        let before = std::fs::read_to_string(&typ_path).unwrap();
+
+        let err = deck
+            .import_guion(script_path.to_str().unwrap())
+            .unwrap_err();
+
+        assert!(
+            err.contains("no se importó nada"),
+            "debe avisar de que el guion no aporta bloques: {err}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&typ_path).unwrap(),
+            before,
+            "sin bloques no se escribe nada"
+        );
+        assert_eq!(
+            deck.typ_content.as_deref(),
+            Some(before.as_str()),
+            "la fuente en memoria queda intacta"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+        let _ = std::fs::remove_file(&typ_path);
+        cleanup_db(&typ_path);
+    }
+
+    #[test]
+    fn import_guion_idempotente() {
+        let (mut deck, typ_path) = deck_with_typ("idempotente", TYP_DOS_SLIDES, TOTAL_DOS_SLIDES);
+        let script_path = temp_file("idempotente", "md", SCRIPT_DOS_SECCIONES.as_bytes());
+
+        let first = deck.import_guion(script_path.to_str().unwrap()).unwrap();
+        let after_first = std::fs::read_to_string(&typ_path).unwrap();
+        let second = deck.import_guion(script_path.to_str().unwrap()).unwrap();
+        let after_second = std::fs::read_to_string(&typ_path).unwrap();
+
+        assert_eq!(first, 2);
+        assert_eq!(second, 2);
+        assert_eq!(
+            after_second, after_first,
+            "reimportar el mismo guion no debe alterar el .typ"
+        );
+        assert_eq!(
+            after_second.matches("typshow:notes:end").count(),
+            2,
+            "siguen habiendo dos bloques, no cuatro"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+        let _ = std::fs::remove_file(&typ_path);
+        cleanup_db(&typ_path);
+    }
+
+    #[test]
+    fn import_guion_sin_documento_error() {
+        let mut deck = Deck::empty();
+        let script_path = temp_file("sin-doc", "md", SCRIPT_DOS_SECCIONES.as_bytes());
+
+        let err = deck
+            .import_guion(script_path.to_str().unwrap())
+            .unwrap_err();
+
+        assert_eq!(err, "No hay documento cargado");
+
+        let _ = std::fs::remove_file(&script_path);
     }
 }
