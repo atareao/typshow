@@ -2,11 +2,27 @@
 
 ## Estado actual
 
-En `development`, sincronizado con la release **v0.5.0** (publicada). Sin trabajo
-pendiente bloqueante. `cargo test` 194 lib + 2 integración verdes, clippy
-(`-D warnings`) y fmt limpios. Working tree limpio, sin ramas activas.
+Rama `feature/guion-embebido-en-typ` con **PR #53** abierta a `development`
+(pendiente de merge). `cargo test` 228 lib + 3 integración verdes, clippy
+(`-D warnings`) y fmt limpios. Auditoría `@rust-reviewer`: APROBADO.
 
-## Completado (sesión 2026-11-15)
+## Completado (sesión 2026-11-22)
+
+### Issue #52 — Guion embebido en el `.typ` como notas del presentador
+- Bloques `// >>> typshow:notes` … `// >>> typshow:notes:end`, invisibles en el PDF
+  (Typst no renderiza comentarios) y visibles solo en typshow.
+- `notes_db.rs`: parser posicional (anclaje por `EmbeddedBlock::heading_line`),
+  sembrado desde bloques con *fallback*, esquema `source_hash` (FNV-1a 64) +
+  `edited`/`heading_edited`, `sync_from_blocks` selectivo no destructivo,
+  `export_to_typ`/`render_exported_typ`, conversor `embed_script_into_typ`.
+- `notes.rs`: `reimport` sin `clear_all`; `main.rs`: `typshow guion-embed <guion.md> <pres.typ>`.
+- UI: `Deck::export_notes` + botón «Exportar» (`icons::UPLOAD_SIMPLE`); `deck::reimport_notes`
+  guarda la edición en curso.
+- 25+11 tests nuevos, incluido uno pixel a pixel de que el bloque no altera el PDF.
+- Spec `openspec/changes/guion-embebido-en-typ/` · Plan `plans/PLAN-010.md` ·
+  Doc `docs/guion-embebido.md`.
+
+### Completado (sesión 2026-11-15)
 
 ### Issue #42 — arranque solo con el presentador, cierre conjunto y tema
 - `Deck::empty()` → `projection: false`; `Deck::no_document()` cablea el tema;
@@ -28,14 +44,17 @@ pendiente bloqueante. `cargo test` 194 lib + 2 integración verdes, clippy
 
 ## Próximo / tarea pendiente
 
-- Verificar manualmente el clic sobre «Salir» con la **proyección activa** (ya
-  automatizado en headless; `ydotool` mueve mal el ratón en esta sesión).
+- **PR #53**: verificación manual en GUI sobre el episodio real (PLAN-010 §7.3) y
+  `openspec archive guion-embebido-en-typ` al mergear.
+- Probar de verdad el guion embebido en el episodio «El día que decidí montar mi red
+  privada» (copias ya generadas en `/tmp/opencode/e2e/`).
 
 ## Follow-ups no bloqueantes
 
 - Editor: undo/redo, navegación por palabras, panel de notas redimensionable.
 - Rama `feature/sync-renderer` (1 commit, sin PR): decidir PR o borrar.
 - Change OpenSpec `gpui-spike` sigue activo (spike, no archivado).
+- Valorar si `Notes::set_heading` (sin llamantes tras `save_user_heading`) sigue en la API pública.
 - `Ctrl+Q` solo en el presentador; valorar extenderlo a la ventana de audiencia.
 - `fontdb` va duplicado en el binario (0.24 directa + 0.23 transitiva de
   `cosmic-text`/`typst-library`); se resolverá cuando esas crates suban.
@@ -43,6 +62,7 @@ pendiente bloqueante. `cargo test` 194 lib + 2 integración verdes, clippy
 ## Notas de reproducción / entorno
 
 - Lanzar: `target/debug/typshow <path.typ>` o sin argumento (solo presentador).
+- Conversor: `target/debug/typshow guion-embed <guion.md> <presentacion.typ>` (idempotente).
 - `ydotool key` usa **keycodes numéricos** (Esc=1, t=20, q=16, ctrl=29).
   `Ctrl+Q` = `ydotool key 29:1 16:1 16:0 29:0`. El ratón (`mousemove`/`click`) NO
   funciona en esta sesión.

@@ -251,14 +251,43 @@ impl Deck {
     }
 
     /// Reconstruye las notas a partir del documento Typst cargado.
+    ///
+    /// Guarda antes la edición en curso, para que una reimportación desde el
+    /// botón no la descarte (simetría con [`Deck::export_notes`]).
     pub fn reimport_notes(&mut self) -> Result<(), String> {
         let Some(content) = self.typ_content.clone() else {
             return Err("No hay documento cargado".to_string());
         };
+        if self.notes.editing
+            && self.notes.dirty
+            && let Err(e) = self.notes.save_current()
+        {
+            return Err(e.to_string());
+        }
         let total = self.total;
         self.notes
             .reimport(&content, total)
             .map_err(|e| e.to_string())
+    }
+
+    /// Vuelca las notas actuales de la base de datos a los bloques embebidos del
+    /// `.typ`, preservando el resto del fichero (ver `notes_db::export_to_typ`).
+    pub fn export_notes(&mut self) -> Result<(), String> {
+        let Some(path) = self.file_path.clone() else {
+            return Err("No hay documento cargado".to_string());
+        };
+        // Una edición en curso debe persistirse antes de volcarla al fichero.
+        if self.notes.editing
+            && self.notes.dirty
+            && let Err(e) = self.notes.save_current()
+        {
+            return Err(e.to_string());
+        }
+        let Some(db) = self.notes.db.as_ref() else {
+            return Err("No hay base de datos de notas".to_string());
+        };
+        let records = db.all_records().map_err(|e| e.to_string())?;
+        crate::export_to_typ(&path, &records).map_err(|e| e.to_string())
     }
 
     /// Sincroniza el estado de las notas tras cambiar de página.

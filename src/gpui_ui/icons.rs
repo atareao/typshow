@@ -52,11 +52,13 @@ pub const PLUS: char = '\u{E3D4}';
 pub const TRASH: char = '\u{E4A6}';
 /// Reimportar notas (`ARROWS_CLOCKWISE`).
 pub const ARROWS_CLOCKWISE: char = '\u{E094}';
+/// Exportar las notas al `.typ` (`UPLOAD_SIMPLE`).
+pub const UPLOAD_SIMPLE: char = '\u{E4C0}';
 /// Salir / cerrar la app (`SIGN_OUT`).
 pub const SIGN_OUT: char = '\u{E42A}';
 
 /// Todos los iconos de la interfaz, para validarlos de una vez.
-pub const ALL: [char; 17] = [
+pub const ALL: [char; 18] = [
     FOLDER_OPEN,
     MOON,
     SUN,
@@ -73,6 +75,7 @@ pub const ALL: [char; 17] = [
     PLUS,
     TRASH,
     ARROWS_CLOCKWISE,
+    UPLOAD_SIMPLE,
     SIGN_OUT,
 ];
 
